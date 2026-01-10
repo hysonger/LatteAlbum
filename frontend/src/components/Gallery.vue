@@ -1,0 +1,213 @@
+<template>
+  <div class="gallery-container" ref="container">
+    <div 
+      v-for="column in columns" 
+      :key="column.id" 
+      class="gallery-column"
+    >
+      <MediaCard 
+        v-for="item in column.items" 
+        :key="item.id"
+        :item="item"
+        :thumbnail-size="thumbnailSize"
+        @click="handleClick(item)"
+      />
+    </div>
+    <div v-if="displayIsLoading" class="loading">
+      <div class="spinner"></div>
+    </div>
+    <div v-else-if="displayIsEmpty" class="empty">
+      暂无数据
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import MediaCard from './MediaCard.vue'
+import type { MediaFile } from '@/types'
+
+// 防抖函数
+const debounce = <T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout)
+    timeout = setTimeout(() => func(...args), wait)
+  }
+}
+
+interface Props {
+  items: MediaFile[]
+  isLoading?: boolean
+  isEmpty?: boolean
+  hasMore?: boolean
+  enableScrollLoad?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  items: () => [],
+  isLoading: false,
+  isEmpty: false,
+  hasMore: false,
+  enableScrollLoad: true
+})
+
+const container = ref<HTMLElement>()
+const columnCount = ref(4)
+
+// 计算缩略图尺寸
+const thumbnailSize = computed(() => {
+  const width = window.innerWidth
+  return width < 768 ? 'small' : 'medium'
+})
+
+// 使用传入的items作为唯一数据源
+const displayItems = computed(() => props.items)
+const displayIsLoading = computed(() => props.isLoading)
+const displayIsEmpty = computed(() => props.isEmpty)
+const displayHasMore = computed(() => props.hasMore)
+
+// 响应式列数计算
+const updateColumnCount = () => {
+  const width = window.innerWidth
+  if (width < 768) {
+    columnCount.value = 2
+  } else if (width < 1024) {
+    columnCount.value = 3
+  } else {
+    columnCount.value = 4
+  }
+}
+
+// 列宽度跟踪，用于自适应高度计算
+const columnWidth = ref(200) // 初始默认值
+
+// 计算实际列宽度
+const updateColumnWidth = () => {
+  if (!container.value) return
+  
+  const containerWidth = container.value.offsetWidth
+  const gap = 10 // 与CSS中的gap值一致
+  const totalGapWidth = gap * (columnCount.value - 1)
+  const availableWidth = containerWidth - totalGapWidth
+  columnWidth.value = Math.floor(availableWidth / columnCount.value)
+}
+
+// 统一的布局更新函数
+const updateLayout = debounce(() => {
+  updateColumnCount()
+  updateColumnWidth()
+}, 100) // 100ms防抖，避免频繁重排
+
+const columns = computed(() => {
+  // 初始化列数组
+  const cols = Array.from({ length: columnCount.value }, (_, i) => ({
+    id: i,
+    items: [] as MediaFile[]
+  }))
+  
+  // 按顺序分配算法：将图片按顺序依次分配到每一列
+  // 这样可以确保在纵向方向上图片是从新到旧排序的
+  displayItems.value.forEach((item, index) => {
+    // 计算图片应该分配到的列索引
+    const columnIndex = index % columnCount.value
+    cols[columnIndex].items.push(item)
+  })
+  
+  return cols
+})
+
+// 滚动加载 - 防抖处理
+const handleScroll = debounce(() => {
+  if (props.enableScrollLoad && !displayIsLoading.value && displayHasMore.value) {
+    const scrollTop = document.documentElement.scrollTop || document.body.scrollTop
+    const clientHeight = document.documentElement.clientHeight
+    const scrollHeight = document.documentElement.scrollHeight
+    
+    // 当滚动到底部附近时加载更多
+    if (scrollTop + clientHeight >= scrollHeight - 200) {
+      // 触发自定义事件，由父组件处理加载逻辑
+      emit('load-more')
+    }
+  }
+}, 150) // 150ms防抖，避免频繁触发加载
+
+// 定义事件
+const emit = defineEmits<{
+  (e: 'click', item: MediaFile): void
+  (e: 'load-more'): void
+}>()
+
+const handleClick = (item: MediaFile) => {
+  // 触发查看详情事件
+  emit('click', item)
+}
+
+// 键盘导航支持
+const handleKeydown = (e: KeyboardEvent) => {
+  // 键盘导航逻辑可由父组件实现
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    // 保留键盘导航接口，未来可扩展
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', handleScroll)
+  window.addEventListener('resize', updateLayout)
+  window.addEventListener('keydown', handleKeydown)
+  // 使用requestAnimationFrame确保DOM已渲染
+  requestAnimationFrame(() => {
+    updateColumnCount()
+    updateColumnWidth()
+  })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('resize', updateLayout)
+  window.removeEventListener('keydown', handleKeydown)
+})
+</script>
+
+<style scoped>
+.gallery-container {
+  display: flex;
+  flex-direction: row;
+  padding: 10px;
+  gap: 10px;
+}
+
+.gallery-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.loading, .empty {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+</style>

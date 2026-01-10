@@ -1,0 +1,7 @@
+photos
+cache
+target
+**/.DS_Store
+frontend/dist
+frontend/node_modules
+database.db

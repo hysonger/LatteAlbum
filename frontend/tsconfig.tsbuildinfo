@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/router/index.ts","./src/services/api.ts","./src/stores/gallery.ts","./src/types/index.ts","./src/app.vue","./src/components/datenavigator.vue","./src/components/gallery.vue","./src/components/mediacard.vue","./src/components/photoviewer.vue","./src/views/homeview.vue"],"errors":true,"version":"5.6.2"}
