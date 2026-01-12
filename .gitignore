@@ -1,7 +1,20 @@
+# Environment configuration
+.env
+.env.local
+.env.remote
+.env.production
+
+# Data directories
 photos
 cache
+data
+database.db
+
+# Build output
 target
-**/.DS_Store
 frontend/dist
 frontend/node_modules
-database.db
+
+# OS files
+**/.DS_Store
+**/Thumbs.db

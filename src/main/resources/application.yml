@@ -1,11 +1,11 @@
 server:
-  port: 8080
-  servlet:
-    context-path: /album
+  port: ${SERVER_PORT:8080}
+  # servlet:
+  #   context-path: /album
 
 spring:
   datasource:
-    url: jdbc:sqlite:${ALBUM_DB_PATH:./database.db}
+    url: jdbc:sqlite:${ALBUM_DB_PATH:/data/db/database.db}
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 5

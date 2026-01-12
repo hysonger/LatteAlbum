@@ -22,15 +22,8 @@ class ScanProgressWebSocketService {
    * 获取 WebSocket URL
    */
   private getWebSocketUrl(): string {
-    // 开发环境使用代理路径，生产环境使用实际路径
-    const isDev = import.meta.env.DEV
-    if (isDev) {
-      return `/ws/scan`
-    }
-    // 生产环境使用实际路径
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const wsHost = window.location.host
-    return `${wsProtocol}://${wsHost}/album/ws/scan`
+    // 始终使用相对路径，避免协议问题
+    return `/ws/scan`
   }
 
   /**
@@ -50,9 +43,7 @@ class ScanProgressWebSocketService {
       console.log('[WebSocket] 连接到:', wsUrl)
 
       this.client = new Client({
-        webSocketFactory: () => new SockJS(wsUrl, null, {
-          transports: ['websocket', 'xhr-streaming', 'iframe-eventsource', 'iframe-htmlfile']
-        }),
+        webSocketFactory: () => new SockJS(wsUrl),
         reconnectDelay: 5000,
         heartbeatIncoming: 4000,
         heartbeatOutgoing: 4000,

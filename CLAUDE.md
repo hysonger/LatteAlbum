@@ -10,17 +10,18 @@ Latte Album is a personal photo album application for NAS deployment. It consist
 
 **Backend (Maven)**:
 ```bash
-mvn clean package                    # Build JAR
-mvn spring-boot:run                  # Run directly
-java -jar target/latte-album-*.jar   # Run JAR
+./dev-run.sh                        # 开发模式运行（使用 .env.development）
+mvn clean package                   # Build JAR
+mvn spring-boot:run                 # Run directly (需要配置 .env)
+java -jar target/latte-album-*.jar  # Run JAR
 ```
 
 **Frontend (npm)**:
 ```bash
 cd frontend
-npm install                          # Install dependencies
-npm run dev                          # Dev server (port 3000)
-npm run build                        # Production build (type-checked)
+npm install                         # Install dependencies
+npm run dev                         # Dev server (port 3000)
+npm run build                       # Production build (type-checked)
 ```
 
 ## Test Commands
@@ -101,10 +102,10 @@ album:
       thread-pool-size: 0                       # Auto: CPU cores
       batch-size: 50                            # Batch save size
   thumbnail:
-    small: 200                                  # Small thumbnail (px)
-    medium: 500                                 # Medium thumbnail (px)
-    large: 1200                                 # Large thumbnail (px)
-    quality: 0.85                               # JPEG quality (85%)
+    small: 300                                  # Small thumbnail (px)
+    medium: 450                                 # Medium thumbnail (px)
+    large: 900                                  # Large thumbnail (px)
+    quality: 0.8                                # JPEG quality (80%)
   cache:
     enabled: true
     disk-path: ${ALBUM_CACHE_DIR:./cache}
@@ -114,7 +115,7 @@ album:
     thumbnail-duration: 0.1                     # Thumbnail duration (seconds)
 ```
 
-Environment variables: `.env` file for paths and JVM options.
+Environment variables: `.env.development` for development, `.env` for production.
 
 ## Database
 
@@ -200,9 +201,9 @@ if (mediaFile.getLastScanned() == null ||
 **Thumbnail Sizes**:
 | Size | Pixels | Use Case |
 |------|--------|----------|
-| small | 200px | Grid view thumbnails |
-| medium | 500px | Standard display |
-| large | 1200px | Full-screen viewing |
+| small | 300px | Grid view thumbnails |
+| medium | 450px | Standard display |
+| large | 900px | Full-screen viewing |
 
 **Cache Keys**: `{fileId}_{size}.jpg`
 

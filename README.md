@@ -28,34 +28,13 @@
 - Node.js 18+
 - Maven 3.6+
 
-### 配置
+### 开发构建与运行
 
-创建 `.env` 文件：
-
-```bash
-# 照片目录（必需）
-ALBUM_BASE_PATH=/path/to/your/photos
-
-# 数据库（可选，默认 ./database.db）
-ALBUM_DB_PATH=/path/to/database.db
-
-# 缓存目录（可选，默认 ./cache）
-ALBUM_CACHE_DIR=/path/to/cache
-```
-
-### 构建与运行
-
-注意本项目处理 HEIF 格式文件需要系统安装 libheif 库，处理视频缩略图需要安装 ffmpeg。确保系统的搜索路径里面包含这两个工具的可执行文件。
+本项目处理 HEIF 格式文件需要系统安装 libheif 库，处理视频缩略图需要安装 ffmpeg。确保系统的搜索路径里面包含这两个工具的可执行文件。
 
 ```bash
-# 构建后端
-mvn clean package
-
-# 运行后端（端口 8080）
-java -jar target/latte-album-*.jar
-
-# 或使用 Maven 直接运行
-mvn spring-boot:run
+# 运行后端
+./dev-run.sh
 
 # 前端（另开终端）
 cd frontend
@@ -64,10 +43,15 @@ npm run dev     # 开发服务器（端口 3000）
 npm run build   # 生产构建
 ```
 
-### 访问
+### Docker 部署
 
-- **Web UI**: http://localhost:3000
-- **API**: http://localhost:8080/album/api
+生产环境下，前后端服务目前位于同一个容器中，端口号也是相同的。
+
+deploy.sh 用于部署到本机，deploy-remote.sh 用于部署到远程服务器（SSH）。需要 docker-compose。
+
+分别从 .env.example 和 .env.remote.example 复制并编辑模板，根据实际情况修改配置项。
+
+注意 **deploy-remote.sh 只是上传了镜像包和脚本**，需要手动在远程服务器上进入上传用户的`~/latte-album`目录，以有权限操作 Docker 的用户身份运行脚本完成部署。
 
 ## 配置项
 
