@@ -250,39 +250,59 @@ const loadMedia = async () => {
   if (!currentFile.value) return
 
   try {
-    // 加载缩略图（large size用于预览）
-    const thumbResponse = await fileApi.getThumbnail(currentFile.value.id, 'large')
-    const thumbBlob = new Blob([thumbResponse.data])
-    thumbnailUrl.value = URL.createObjectURL(thumbBlob)
-
-    // 加载大图（使用异步接口，HEIF自动转换为JPEG）
     if (isImage.value) {
       isLoading.value = true
-      const isHeif = Boolean(currentFile.value.fileName) && 
-        (currentFile.value.fileName.toLowerCase().endsWith('.heic') || 
+      const isHeif = Boolean(currentFile.value.fileName) &&
+        (currentFile.value.fileName.toLowerCase().endsWith('.heic') ||
          currentFile.value.fileName.toLowerCase().endsWith('.heif'))
-      
       isConverting.value = isHeif
-      
+
+      // 并行请求 full 和 large，优先显示先返回的
+      const fullRequest = fileApi.getThumbnail(currentFile.value.id, 'full')
+      const largeRequest = fileApi.getThumbnail(currentFile.value.id, 'large')
+
       try {
-        const response = await fileApi.getThumbnail(currentFile.value.id, 'full')
-        const blob = new Blob([response.data])
-        currentImageUrl.value = URL.createObjectURL(blob)
-      } finally {
-        isLoading.value = false
-        isConverting.value = false
+        // 使用 Promise.race 竞争，先完成的先处理
+        const winner: { result: { data: BlobPart }; isFull: boolean } = await Promise.race([
+          fullRequest.then(result => ({ result, isFull: true })),
+          largeRequest.then(result => ({ result, isFull: false }))
+        ])
+
+        if (winner.isFull) {
+          // full 先返回，直接显示
+          currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
+          thumbnailUrl.value = undefined
+        } else {
+          // large 先返回，作为占位图显示
+          thumbnailUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
+
+          // 继续等待 full
+          const fullResult = await fullRequest
+          currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
+        }
+      } catch {
+        // 如果 full 失败，尝试使用 large 作为备选
+        if (currentImageUrl.value === undefined) {
+          try {
+            const largeResult = await largeRequest
+            currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
+          } catch (e) {
+            console.error('加载媒体文件失败:', e)
+            currentImageUrl.value = undefined
+          }
+        }
       }
     } else if (isVideo.value) {
+      // 视频保持原有逻辑（只用 large 作为 poster）
+      const thumbResponse = await fileApi.getThumbnail(currentFile.value.id, 'large')
+      const thumbBlob = new Blob([thumbResponse.data])
+      thumbnailUrl.value = URL.createObjectURL(thumbBlob)
+
       const response = await fileApi.getOriginalFile(currentFile.value.id)
       const blob = new Blob([response.data])
       currentVideoUrl.value = URL.createObjectURL(blob)
     }
-  } catch (error) {
-    console.error('加载媒体文件失败:', error)
-    // 出错时设置为undefined而不是null
-    currentImageUrl.value = undefined
-    currentVideoUrl.value = undefined
-    thumbnailUrl.value = undefined
+  } finally {
     isLoading.value = false
     isConverting.value = false
   }
