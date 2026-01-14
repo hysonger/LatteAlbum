@@ -1,0 +1,68 @@
+[package]
+name = "latte-album"
+version = "0.1.0"
+edition = "2021"
+description = "A personal photo album application for NAS deployment"
+authors = ["Latte Album"]
+
+[features]
+default = []
+video-processing = ["ffmpeg-next"]
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util", "filter"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# Database
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono"] }
+
+# Image processing
+image = { version = "0.25", features = ["png", "jpeg", "gif", "webp", "tiff"] }
+
+# EXIF extraction (pure Rust)
+little_exif = "0.6"
+
+# Video processing (FFmpeg) - optional
+ffmpeg-next = { version = "7", optional = true }
+
+# WebSocket
+tokio-tungstenite = "0.28"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Configuration
+dotenvy = "0.15"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde", "std"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Utilities
+async-trait = "0.1"
+futures = "0.3"
+futures-util = "0.3"
+mime_guess = "2"
+tokio-stream = "0.1"
+
+# Scheduling
+tokio-cron-scheduler = "0.12"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

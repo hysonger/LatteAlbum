@@ -1,0 +1,311 @@
+use crate::db::models::{DateInfo, Directory, MediaFile};
+use crate::db::pool::DatabasePool;
+use chrono::{NaiveDateTime, Utc};
+use sqlx::Row;
+use std::path::Path;
+
+/// Repository for media file database operations
+pub struct MediaFileRepository<'a> {
+    db: &'a DatabasePool,
+}
+
+impl<'a> MediaFileRepository<'a> {
+    pub fn new(db: &'a DatabasePool) -> Self {
+        Self { db }
+    }
+
+    /// Get all media files with pagination and filtering
+    pub async fn find_all(
+        &self,
+        path_filter: Option<&str>,
+        file_type: Option<&str>,
+        camera_model: Option<&str>,
+        date_filter: Option<&str>,
+        sort_by: &str,
+        order: &str,
+        page: i32,
+        page_size: i32,
+    ) -> Result<Vec<MediaFile>, sqlx::Error> {
+        let mut query = String::from("SELECT * FROM media_files WHERE 1=1");
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(path) = path_filter {
+            query.push_str(" AND file_path LIKE ?");
+            params.push(format!("%{}%", path));
+        }
+
+        if let Some(ft) = file_type {
+            if ft != "all" {
+                query.push_str(" AND file_type = ?");
+                params.push(ft.to_string());
+            }
+        }
+
+        if let Some(camera) = camera_model {
+            query.push_str(" AND camera_model = ?");
+            params.push(camera.to_string());
+        }
+
+        if let Some(date) = date_filter {
+            query.push_str(" AND (exif_timestamp LIKE ? OR create_time LIKE ? OR modify_time LIKE ?)");
+            let date_prefix = format!("{}%", date);
+            params.push(date_prefix.clone());
+            params.push(date_prefix.clone());
+            params.push(date_prefix);
+        }
+
+        // Sort by effective time (EXIF > create > modify)
+        let sort_field = match sort_by {
+            "exifTimestamp" => "exif_timestamp",
+            "createTime" => "create_time",
+            "modifyTime" => "modify_time",
+            "fileName" => "file_name",
+            _ => "exif_timestamp",
+        };
+
+        query.push_str(&format!(" ORDER BY CASE WHEN {} IS NOT NULL THEN 0 ELSE 1 END, {} {}",
+            sort_field, sort_field, if order == "asc" { "ASC" } else { "DESC" }));
+
+        query.push_str(&format!(" LIMIT {} OFFSET {}", page_size, page * page_size));
+
+        let mut sqlx_query = sqlx::query_as::<_, MediaFile>(&query);
+        for param in &params {
+            sqlx_query = sqlx_query.bind(param.as_str());
+        }
+
+        sqlx_query.fetch_all(self.db.get_pool()).await
+    }
+
+    /// Get file by ID
+    pub async fn find_by_id(&self, id: &str) -> Result<Option<MediaFile>, sqlx::Error> {
+        sqlx::query_as::<_, MediaFile>("SELECT * FROM media_files WHERE id = ?")
+            .bind(id)
+            .fetch_optional(self.db.get_pool())
+            .await
+    }
+
+    /// Get file by path
+    pub async fn find_by_path(&self, path: &Path) -> Result<Option<MediaFile>, sqlx::Error> {
+        sqlx::query_as::<_, MediaFile>("SELECT * FROM media_files WHERE file_path = ?")
+            .bind(path.to_string_lossy().to_string())
+            .fetch_optional(self.db.get_pool())
+            .await
+    }
+
+    /// Get neighbor files for navigation
+    pub async fn find_neighbors(
+        &self,
+        id: &str,
+        sort_time: NaiveDateTime,
+        before: bool,
+    ) -> Result<Option<MediaFile>, sqlx::Error> {
+        let op = if before { "<" } else { ">" };
+        let order = if before { "DESC" } else { "ASC" };
+
+        let query = format!(
+            "SELECT * FROM media_files
+             WHERE (exif_timestamp {} ? OR (exif_timestamp IS NULL AND create_time {} ?))
+             ORDER BY CASE WHEN exif_timestamp IS NOT NULL THEN 0 ELSE 1 END, exif_timestamp {} NULLS LAST, create_time {} {}
+             LIMIT 1",
+            op, op, order, order, order
+        );
+
+        sqlx::query_as::<_, MediaFile>(&query)
+            .bind(sort_time)
+            .bind(sort_time)
+            .fetch_optional(self.db.get_pool())
+            .await
+    }
+
+    /// Get dates with photos (for calendar)
+    pub async fn find_dates_with_files(
+        &self,
+        path_filter: Option<&str>,
+        file_type: Option<&str>,
+    ) -> Result<Vec<DateInfo>, sqlx::Error> {
+        let mut query = String::from(
+            "SELECT date AS date, COUNT(*) AS count FROM (
+                SELECT DISTINCT date(exif_timestamp) AS date FROM media_files WHERE exif_timestamp IS NOT NULL
+                UNION
+                SELECT DISTINCT date(create_time) AS date FROM media_files WHERE create_time IS NOT NULL AND exif_timestamp IS NULL
+                UNION
+                SELECT DISTINCT date(modify_time) AS date FROM media_files WHERE modify_time IS NOT NULL AND exif_timestamp IS NULL AND create_time IS NULL
+            ) GROUP BY date ORDER BY date DESC"
+        );
+
+        let mut sqlx_query = sqlx::query_as::<_, DateInfo>(&query);
+
+        sqlx_query.fetch_all(self.db.get_pool()).await
+    }
+
+    /// Insert or update a media file
+    pub async fn upsert(&self, file: &MediaFile) -> Result<(), sqlx::Error> {
+        let now = Utc::now().naive_utc();
+
+        sqlx::query(
+            "INSERT OR REPLACE INTO media_files (
+                id, file_path, file_name, file_type, mime_type, file_size,
+                width, height, exif_timestamp, exif_timezone_offset,
+                create_time, modify_time, last_scanned,
+                camera_make, camera_model, lens_model,
+                exposure_time, aperture, iso, focal_length,
+                duration, video_codec, thumbnail_generated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&file.id)
+        .bind(&file.file_path)
+        .bind(&file.file_name)
+        .bind(&file.file_type)
+        .bind(&file.mime_type)
+        .bind(&file.file_size)
+        .bind(&file.width)
+        .bind(&file.height)
+        .bind(file.exif_timestamp)
+        .bind(&file.exif_timezone_offset)
+        .bind(file.create_time)
+        .bind(file.modify_time)
+        .bind(now)
+        .bind(&file.camera_make)
+        .bind(&file.camera_model)
+        .bind(&file.lens_model)
+        .bind(&file.exposure_time)
+        .bind(&file.aperture)
+        .bind(&file.iso)
+        .bind(&file.focal_length)
+        .bind(&file.duration)
+        .bind(&file.video_codec)
+        .bind(if file.thumbnail_generated { 1 } else { 0 })
+        .execute(self.db.get_pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Delete a media file by ID
+    pub async fn delete_by_id(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM media_files WHERE id = ?")
+            .bind(id)
+            .execute(self.db.get_pool())
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete files not in the given path list
+    pub async fn delete_missing(&self, existing_paths: &[String]) -> Result<u64, sqlx::Error> {
+        if existing_paths.is_empty() {
+            return Ok(0);
+        }
+
+        let placeholders: String = existing_paths.iter().map(|_| "?").collect();
+        let query = format!(
+            "DELETE FROM media_files WHERE file_path NOT IN ({}) AND last_scanned IS NOT NULL",
+            placeholders
+        );
+
+        let mut sqlx_query = sqlx::query(&query);
+        for path in existing_paths {
+            sqlx_query = sqlx_query.bind(path.as_str());
+        }
+
+        let result = sqlx_query.execute(self.db.get_pool()).await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Count files with filters
+    pub async fn count(
+        &self,
+        path_filter: Option<&str>,
+        file_type: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        let mut query = String::from("SELECT COUNT(*) FROM media_files WHERE 1=1");
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(path) = path_filter {
+            query.push_str(" AND file_path LIKE ?");
+            params.push(format!("%{}%", path));
+        }
+
+        if let Some(ft) = file_type {
+            if ft != "all" {
+                query.push_str(" AND file_type = ?");
+                params.push(ft.to_string());
+            }
+        }
+
+        let mut sqlx_query = sqlx::query_scalar::<_, i64>(&query);
+        for param in &params {
+            sqlx_query = sqlx_query.bind(param.as_str());
+        }
+
+        sqlx_query.fetch_one(self.db.get_pool()).await
+    }
+
+    /// Update thumbnail generated status
+    pub async fn update_thumbnail_status(&self, id: &str, generated: bool) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE media_files SET thumbnail_generated = ? WHERE id = ?")
+            .bind(if generated { 1 } else { 0 })
+            .bind(id)
+            .execute(self.db.get_pool())
+            .await?;
+
+        Ok(())
+    }
+}
+
+/// Repository for directory operations
+pub struct DirectoryRepository<'a> {
+    db: &'a DatabasePool,
+}
+
+impl<'a> DirectoryRepository<'a> {
+    pub fn new(db: &'a DatabasePool) -> Self {
+        Self { db }
+    }
+
+    /// Get all directories
+    pub async fn find_all(&self) -> Result<Vec<Directory>, sqlx::Error> {
+        sqlx::query_as::<_, Directory>("SELECT * FROM directories ORDER BY path")
+            .fetch_all(self.db.get_pool())
+            .await
+    }
+
+    /// Get directory tree
+    pub async fn find_tree(&self) -> Result<Vec<Directory>, sqlx::Error> {
+        self.find_all().await
+    }
+
+    /// Upsert a directory
+    pub async fn upsert(&self, dir: &Directory) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO directories (id, path, parent_id, last_modified)
+             VALUES (?, ?, ?, ?)"
+        )
+        .bind(dir.id)
+        .bind(&dir.path)
+        .bind(dir.parent_id)
+        .bind(dir.last_modified.map(|t| t.to_string()))
+        .execute(self.db.get_pool())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Delete directories not in the given path list
+    pub async fn delete_missing(&self, existing_paths: &[String]) -> Result<u64, sqlx::Error> {
+        if existing_paths.is_empty() {
+            return Ok(0);
+        }
+
+        let placeholders: String = existing_paths.iter().map(|_| "?").collect();
+        let query = format!("DELETE FROM directories WHERE path NOT IN ({})", placeholders);
+
+        let mut sqlx_query = sqlx::query(&query);
+        for path in existing_paths {
+            sqlx_query = sqlx_query.bind(path.as_str());
+        }
+
+        let result = sqlx_query.execute(self.db.get_pool()).await?;
+        Ok(result.rows_affected())
+    }
+}

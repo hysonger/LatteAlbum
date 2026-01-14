@@ -1,6 +1,3 @@
-import SockJS from 'sockjs-client'
-import { Client, IMessage } from '@stomp/stompjs'
-
 export interface ScanProgressMessage {
   scanning: boolean
   phase?: string          // 当前阶段: collecting, counting, processing, deleting, completed
@@ -18,100 +15,95 @@ export interface ScanProgressMessage {
   filesToDelete?: number
 }
 
+type ProgressCallback = (progress: ScanProgressMessage) => void
+
 class ScanProgressWebSocketService {
-  private client: Client | null = null
+  private ws: WebSocket | null = null
   private isConnected = false
-  private progressCallback: ((progress: ScanProgressMessage) => void) | null = null
-  private connectionPromise: Promise<void> | null = null
+  private progressCallback: ProgressCallback | null = null
+  private reconnectTimer: number | null = null
 
   /**
    * 获取 WebSocket URL
    */
   private getWebSocketUrl(): string {
-    // 始终使用相对路径，避免协议问题
-    return `/ws/scan`
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.host
+    return `${protocol}//${host}/ws/scan`
   }
 
   /**
    * 连接到 WebSocket 服务器
    */
   connect(): Promise<void> {
-    if (this.isConnected && this.client?.connected) {
-      return Promise.resolve()
-    }
+    return new Promise((resolve, reject) => {
+      if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
+        resolve()
+        return
+      }
 
-    if (this.connectionPromise) {
-      return this.connectionPromise
-    }
-
-    this.connectionPromise = new Promise((resolve, reject) => {
       const wsUrl = this.getWebSocketUrl()
       console.log('[WebSocket] 连接到:', wsUrl)
 
-      this.client = new Client({
-        webSocketFactory: () => new SockJS(wsUrl),
-        reconnectDelay: 5000,
-        heartbeatIncoming: 4000,
-        heartbeatOutgoing: 4000,
-        onConnect: () => {
+      try {
+        this.ws = new WebSocket(wsUrl)
+
+        this.ws.onopen = () => {
           console.log('[WebSocket] 连接成功')
           this.isConnected = true
-          this.connectionPromise = null
-
-          // 订阅扫描进度主题
-          this.client?.subscribe('/topic/scan/progress', (message: IMessage) => {
-            try {
-              const progress: ScanProgressMessage = JSON.parse(message.body)
-              console.log('[WebSocket] 收到进度更新:', progress)
-              if (this.progressCallback) {
-                this.progressCallback(progress)
-              }
-            } catch (e) {
-              console.error('[WebSocket] 解析进度消息失败:', e)
-            }
-          })
-
           resolve()
-        },
-        onStompError: (frame) => {
-          console.error('[WebSocket] STOMP 错误:', frame.headers['message'])
-          this.isConnected = false
-          this.connectionPromise = null
-          reject(new Error(frame.headers['message']))
-        },
-        onDisconnect: () => {
-          console.log('[WebSocket] 连接断开')
-          this.isConnected = false
-        },
-        onWebSocketClose: (frame) => {
-          console.log('[WebSocket] 连接关闭:', frame.code, frame.reason)
-          this.isConnected = false
-          // 尝试重连
-          if (this.connectionPromise === null) {
-            setTimeout(() => {
-              if (!this.isConnected) {
-                this.connect().catch(() => {})
-              }
-            }, 3000)
+        }
+
+        this.ws.onmessage = (event) => {
+          try {
+            const progress: ScanProgressMessage = JSON.parse(event.data)
+            console.log('[WebSocket] 收到进度更新:', progress)
+            if (this.progressCallback) {
+              this.progressCallback(progress)
+            }
+          } catch (e) {
+            console.error('[WebSocket] 解析进度消息失败:', e)
           }
         }
-      })
 
-      this.client.activate()
+        this.ws.onerror = (error) => {
+          console.error('[WebSocket] 连接错误:', error)
+          this.isConnected = false
+          reject(new Error('WebSocket 连接失败'))
+        }
+
+        this.ws.onclose = (event) => {
+          console.log('[WebSocket] 连接关闭:', event.code, event.reason)
+          this.isConnected = false
+
+          // 自动重连
+          if (this.reconnectTimer === null) {
+            this.reconnectTimer = window.setTimeout(() => {
+              this.reconnectTimer = null
+              console.log('[WebSocket] 尝试重连...')
+              this.connect().catch(() => {})
+            }, 5000)
+          }
+        }
+      } catch (error) {
+        reject(error)
+      }
     })
-
-    return this.connectionPromise
   }
 
   /**
    * 断开连接
    */
   disconnect(): void {
-    if (this.client) {
-      this.client.deactivate()
-      this.client = null
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
       this.isConnected = false
-      this.connectionPromise = null
       console.log('[WebSocket] 已断开连接')
     }
   }
@@ -119,7 +111,7 @@ class ScanProgressWebSocketService {
   /**
    * 设置进度回调
    */
-  onProgress(callback: (progress: ScanProgressMessage) => void): void {
+  onProgress(callback: ProgressCallback): void {
     this.progressCallback = callback
   }
 
@@ -134,7 +126,7 @@ class ScanProgressWebSocketService {
    * 检查是否已连接
    */
   isReady(): boolean {
-    return this.isConnected && this.client?.connected === true
+    return this.isConnected && this.ws?.readyState === WebSocket.OPEN
   }
 }
 

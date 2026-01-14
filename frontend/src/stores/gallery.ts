@@ -17,11 +17,11 @@ export const useGalleryStore = defineStore('gallery', () => {
   const showDateResults = ref(false)
   const dateResults = ref<MediaFile[]>([])
 
-  // 计算属性
-  const isEmpty = computed(() => displayItems.value.length === 0)
+  // 计算属性 - 注意顺序：displayItems 必须在 isEmpty 之前定义
   const displayItems = computed(() => {
     return showDateResults.value ? dateResults.value : items.value
   })
+  const isEmpty = computed(() => displayItems.value?.length === 0)
 
   // 动作
   async function loadPage(page: number) {
