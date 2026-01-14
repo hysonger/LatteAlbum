@@ -5,13 +5,19 @@ import java.time.LocalDateTime;
 public class ScanProgressDTO {
 
     private boolean scanning;
-    private long totalFiles;
-    private long successCount;
-    private long failureCount;
+    private String phase;           // 当前阶段: collecting, counting, processing, deleting, completed
+    private String phaseMessage;    // 阶段描述信息
+    private long totalFiles;        // 需处理文件总数
+    private long successCount;      // 成功处理数
+    private long failureCount;      // 失败数
     private String progressPercentage;
     private LocalDateTime startTime;
-    private String status; // started, progress, completed, error, cancelled
+    private String status;
     private String message;
+    // 各阶段文件数量
+    private long filesToAdd;        // 新增文件数
+    private long filesToUpdate;     // 修改文件数
+    private long filesToDelete;     // 删除文件数
 
     public ScanProgressDTO() {}
 
@@ -23,6 +29,22 @@ public class ScanProgressDTO {
     // 静态工厂方法
     public static ScanProgressDTO started() {
         ScanProgressDTO dto = new ScanProgressDTO(true, "started");
+        dto.setPhase("started");
+        dto.setMessage("扫描已启动");
+        return dto;
+    }
+
+    /**
+     * 创建扫描开始消息，包含各阶段文件数量
+     */
+    public static ScanProgressDTO started(long filesToAdd, long filesToUpdate, long filesToDelete) {
+        ScanProgressDTO dto = new ScanProgressDTO(true, "started");
+        dto.setPhase("processing");
+        dto.setPhaseMessage("准备开始处理文件...");
+        dto.setFilesToAdd(filesToAdd);
+        dto.setFilesToUpdate(filesToUpdate);
+        dto.setFilesToDelete(filesToDelete);
+        dto.setTotalFiles(filesToAdd + filesToUpdate);
         dto.setMessage("扫描已启动");
         return dto;
     }
@@ -37,8 +59,47 @@ public class ScanProgressDTO {
         return dto;
     }
 
+    /**
+     * 创建阶段更新消息
+     */
+    public static ScanProgressDTO phaseUpdate(String phase, String phaseMessage, long totalFiles,
+                                              long successCount, long failureCount,
+                                              String progressPercentage, LocalDateTime startTime) {
+        ScanProgressDTO dto = new ScanProgressDTO(true, "progress");
+        dto.setPhase(phase);
+        dto.setPhaseMessage(phaseMessage);
+        dto.setTotalFiles(totalFiles);
+        dto.setSuccessCount(successCount);
+        dto.setFailureCount(failureCount);
+        dto.setProgressPercentage(progressPercentage);
+        dto.setStartTime(startTime);
+        return dto;
+    }
+
+    /**
+     * 创建阶段更新消息（带各阶段数量）
+     */
+    public static ScanProgressDTO phaseUpdate(String phase, String phaseMessage, long totalFiles,
+                                              long successCount, long failureCount,
+                                              String progressPercentage, LocalDateTime startTime,
+                                              long filesToAdd, long filesToUpdate, long filesToDelete) {
+        ScanProgressDTO dto = new ScanProgressDTO(true, "progress");
+        dto.setPhase(phase);
+        dto.setPhaseMessage(phaseMessage);
+        dto.setTotalFiles(totalFiles);
+        dto.setSuccessCount(successCount);
+        dto.setFailureCount(failureCount);
+        dto.setProgressPercentage(progressPercentage);
+        dto.setStartTime(startTime);
+        dto.setFilesToAdd(filesToAdd);
+        dto.setFilesToUpdate(filesToUpdate);
+        dto.setFilesToDelete(filesToDelete);
+        return dto;
+    }
+
     public static ScanProgressDTO completed(long totalFiles, long successCount, long failureCount) {
         ScanProgressDTO dto = new ScanProgressDTO(false, "completed");
+        dto.setPhase("completed");
         dto.setTotalFiles(totalFiles);
         dto.setSuccessCount(successCount);
         dto.setFailureCount(failureCount);
@@ -49,12 +110,14 @@ public class ScanProgressDTO {
 
     public static ScanProgressDTO error(String message) {
         ScanProgressDTO dto = new ScanProgressDTO(false, "error");
+        dto.setPhase("error");
         dto.setMessage(message);
         return dto;
     }
 
     public static ScanProgressDTO cancelled() {
         ScanProgressDTO dto = new ScanProgressDTO(false, "cancelled");
+        dto.setPhase("cancelled");
         dto.setMessage("扫描已取消");
         return dto;
     }
@@ -122,5 +185,45 @@ public class ScanProgressDTO {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public String getPhase() {
+        return phase;
+    }
+
+    public void setPhase(String phase) {
+        this.phase = phase;
+    }
+
+    public String getPhaseMessage() {
+        return phaseMessage;
+    }
+
+    public void setPhaseMessage(String phaseMessage) {
+        this.phaseMessage = phaseMessage;
+    }
+
+    public long getFilesToAdd() {
+        return filesToAdd;
+    }
+
+    public void setFilesToAdd(long filesToAdd) {
+        this.filesToAdd = filesToAdd;
+    }
+
+    public long getFilesToUpdate() {
+        return filesToUpdate;
+    }
+
+    public void setFilesToUpdate(long filesToUpdate) {
+        this.filesToUpdate = filesToUpdate;
+    }
+
+    public long getFilesToDelete() {
+        return filesToDelete;
+    }
+
+    public void setFilesToDelete(long filesToDelete) {
+        this.filesToDelete = filesToDelete;
     }
 }

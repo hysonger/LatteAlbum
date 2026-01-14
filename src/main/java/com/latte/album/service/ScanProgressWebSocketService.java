@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 @Service
 public class ScanProgressWebSocketService {
 
@@ -19,12 +21,47 @@ public class ScanProgressWebSocketService {
     }
 
     /**
-     * 发送扫描启动消息
+     * 发送扫描启动消息（基础版本）
      */
     public void sendScanStarted() {
         ScanProgressDTO dto = ScanProgressDTO.started();
         messagingTemplate.convertAndSend(SCAN_PROGRESS_TOPIC, dto);
         logger.info("WebSocket: 发送扫描启动消息");
+    }
+
+    /**
+     * 发送扫描启动消息（包含各阶段文件数量）
+     */
+    public void sendScanStarted(long filesToAdd, long filesToUpdate, long filesToDelete) {
+        ScanProgressDTO dto = ScanProgressDTO.started(filesToAdd, filesToUpdate, filesToDelete);
+        messagingTemplate.convertAndSend(SCAN_PROGRESS_TOPIC, dto);
+        logger.info("WebSocket: 发送扫描启动消息 - 新增:{}, 修改:{}, 删除:{}", filesToAdd, filesToUpdate, filesToDelete);
+    }
+
+    /**
+     * 发送阶段更新消息
+     */
+    public void sendPhaseUpdate(String phase, String phaseMessage, long totalFiles,
+                                long successCount, long failureCount,
+                                String progressPercentage, LocalDateTime startTime) {
+        ScanProgressDTO dto = ScanProgressDTO.phaseUpdate(phase, phaseMessage, totalFiles,
+            successCount, failureCount, progressPercentage, startTime);
+        messagingTemplate.convertAndSend(SCAN_PROGRESS_TOPIC, dto);
+        logger.debug("WebSocket: 发送阶段更新 - {}: {} ({})", phase, phaseMessage, progressPercentage);
+    }
+
+    /**
+     * 发送阶段更新消息（包含各阶段数量）
+     */
+    public void sendPhaseUpdate(String phase, String phaseMessage, long totalFiles,
+                                long successCount, long failureCount,
+                                String progressPercentage, LocalDateTime startTime,
+                                long filesToAdd, long filesToUpdate, long filesToDelete) {
+        ScanProgressDTO dto = ScanProgressDTO.phaseUpdate(phase, phaseMessage, totalFiles,
+            successCount, failureCount, progressPercentage, startTime,
+            filesToAdd, filesToUpdate, filesToDelete);
+        messagingTemplate.convertAndSend(SCAN_PROGRESS_TOPIC, dto);
+        logger.debug("WebSocket: 发送阶段更新 - {}: {} ({})", phase, phaseMessage, progressPercentage);
     }
 
     /**

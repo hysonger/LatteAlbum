@@ -3,6 +3,8 @@ import { Client, IMessage } from '@stomp/stompjs'
 
 export interface ScanProgressMessage {
   scanning: boolean
+  phase?: string          // 当前阶段: collecting, counting, processing, deleting, completed
+  phaseMessage?: string   // 阶段描述信息
   totalFiles: number
   successCount: number
   failureCount: number
@@ -10,6 +12,10 @@ export interface ScanProgressMessage {
   startTime?: string
   status: 'started' | 'progress' | 'completed' | 'error' | 'cancelled'
   message?: string
+  // 各阶段文件数量
+  filesToAdd?: number
+  filesToUpdate?: number
+  filesToDelete?: number
 }
 
 class ScanProgressWebSocketService {

@@ -20,7 +20,15 @@ public class SystemController {
     
     @PostMapping("/rescan")
     public Map<String, Object> rescan() {
-        fileScannerService.scanDirectory();
+        if (fileScannerService.isScanning()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "already_scanning");
+            result.put("message", "扫描已在进行中");
+            return result;
+        }
+
+        // 异步执行扫描
+        fileScannerService.scanDirectoryAsync();
         Map<String, Object> result = new HashMap<>();
         result.put("status", "started");
         result.put("message", "扫描已启动");
@@ -30,7 +38,7 @@ public class SystemController {
     @GetMapping("/scan/progress")
     public Map<String, Object> getScanProgress() {
         Map<String, Object> result = new HashMap<>();
-        
+
         if (!fileScannerService.isScanning()) {
             result.put("scanning", false);
             result.put("message", "当前没有进行中的扫描");
@@ -42,8 +50,11 @@ public class SystemController {
             result.put("failureCount", progress.getFailureCount());
             result.put("progressPercentage", String.format("%.2f", progress.getProgressPercentage()));
             result.put("startTime", progress.getStartTime());
+            result.put("filesToAdd", progress.getFilesToAdd());
+            result.put("filesToUpdate", progress.getFilesToUpdate());
+            result.put("filesToDelete", progress.getFilesToDelete());
         }
-        
+
         return result;
     }
     

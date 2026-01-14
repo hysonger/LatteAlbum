@@ -107,6 +107,9 @@ export const systemApi = {
       progressPercentage: string
       startTime: string
       message?: string
+      filesToAdd: number
+      filesToUpdate: number
+      filesToDelete: number
     }>('/system/scan/progress')
   },
 

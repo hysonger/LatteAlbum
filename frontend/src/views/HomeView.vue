@@ -77,25 +77,26 @@
           class="refresh-button"
           :class="{
             success: refreshStatus === 'success',
-            error: refreshStatus === 'error'
+            error: refreshStatus === 'error',
+            refreshing: isRefreshing
           }"
           @click="handleRefresh"
           :disabled="isRefreshing"
         >
-          <svg v-if="isRefreshing && scanProgressData" class="progress-ring" viewBox="0 0 36 36">
+          <svg v-if="isRefreshing" class="progress-ring" viewBox="0 0 36 36">
             <path
               class="progress-ring-bg"
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             />
             <path
               class="progress-ring-fill"
-              :stroke-dasharray="`${scanProgressData.progressPercentage}, 100`"
+              :stroke-dasharray="`${parseFloat(scanProgressData?.progressPercentage || '0')}, 100`"
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             />
           </svg>
-          <i v-else-if="refreshStatus === 'success'" class="fas fa-check"></i>
-          <i v-else-if="refreshStatus === 'error'" class="fas fa-times"></i>
-          <i v-else class="fas fa-sync-alt"></i>
+          <i v-if="!isRefreshing && refreshStatus === 'success'" class="fas fa-check"></i>
+          <i v-if="!isRefreshing && refreshStatus === 'error'" class="fas fa-times"></i>
+          <i v-if="!isRefreshing && refreshStatus === 'default'" class="fas fa-sync-alt"></i>
         </div>
         
         <!-- 手机端更多按钮 -->
@@ -157,19 +158,75 @@
       </transition>
     </footer>
     
-    <PhotoViewer 
+    <PhotoViewer
       v-if="showViewer && currentFile"
       :file="currentFile"
       :neighbors="currentNeighbors"
       @close="closeViewer"
       @change="handleChangeFile"
     />
+
+    <!-- 扫描进度对话框 -->
+    <el-dialog
+      v-model="showScanDialog"
+      title="扫描进度"
+      :close-on-click-modal="false"
+      width="90%"
+      class="scan-progress-dialog"
+      :append-to-body="true"
+    >
+      <!-- 阶段信息 -->
+      <div class="phase-info">
+        <span class="phase-text">{{ scanProgressData?.phaseMessage || '初始化中...' }}</span>
+      </div>
+
+      <!-- 进度条 -->
+      <el-progress
+        :percentage="parseFloat(scanProgressData?.progressPercentage || '0')"
+        :stroke-width="10"
+      />
+
+      <!-- 详细统计 -->
+      <div class="scan-stats">
+        <div class="stat-item">
+          <span class="stat-label">新增</span>
+          <span class="stat-value add">{{ scanProgressData?.filesToAdd || 0 }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">修改</span>
+          <span class="stat-value update">{{ scanProgressData?.filesToUpdate || 0 }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">删除</span>
+          <span class="stat-value delete">{{ scanProgressData?.filesToDelete || 0 }}</span>
+        </div>
+      </div>
+
+      <!-- 处理进度 -->
+      <div class="processing-info">
+        <div class="info-row">
+          <span>已处理</span>
+          <span>{{ scanProgressData?.successCount || 0 }} / {{ scanProgressData?.totalFiles || 0 }}</span>
+        </div>
+        <div class="info-row" v-if="scanProgressData && (scanProgressData.failureCount || 0) > 0">
+          <span>失败</span>
+          <span class="error">{{ scanProgressData.failureCount }}</span>
+        </div>
+      </div>
+
+      <!-- 底部按钮 -->
+      <template #footer>
+        <el-button @click="showScanDialog = false">隐藏</el-button>
+        <el-button type="danger" @click="handleStopScan">停止扫描</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useGalleryStore } from '@/stores/gallery'
+import { ElMessageBox } from 'element-plus'
 import Gallery from '@/components/Gallery.vue'
 import DateNavigator from '@/components/DateNavigator.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -224,11 +281,19 @@ const isRefreshing = ref(false)
 const refreshStatus = ref<'default' | 'refreshing' | 'success' | 'error'>('default')
 const scanProgressData = ref<{
   scanning: boolean
+  phase?: string
+  phaseMessage?: string
   totalFiles: number
   successCount: number
   failureCount: number
   progressPercentage: string
+  filesToAdd?: number
+  filesToUpdate?: number
+  filesToDelete?: number
 } | null>(null)
+
+// 扫描进度对话框
+const showScanDialog = ref(false)
 
 // 其他状态
 const showViewer = ref(false)
@@ -316,30 +381,46 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       refreshStatus.value = 'refreshing'
       scanProgressData.value = {
         scanning: true,
-        totalFiles: 0,
+        phase: progress.phase,
+        phaseMessage: progress.phaseMessage,
+        totalFiles: progress.totalFiles || 0,
         successCount: 0,
         failureCount: 0,
-        progressPercentage: '0'
+        progressPercentage: '0',
+        filesToAdd: progress.filesToAdd,
+        filesToUpdate: progress.filesToUpdate,
+        filesToDelete: progress.filesToDelete
       }
       break
 
     case 'progress':
       scanProgressData.value = {
         scanning: true,
+        phase: progress.phase,
+        phaseMessage: progress.phaseMessage,
         totalFiles: progress.totalFiles,
         successCount: progress.successCount,
         failureCount: progress.failureCount,
-        progressPercentage: progress.progressPercentage
+        progressPercentage: progress.progressPercentage,
+        filesToAdd: progress.filesToAdd,
+        filesToUpdate: progress.filesToUpdate,
+        filesToDelete: progress.filesToDelete
       }
       break
 
     case 'completed':
+      showScanDialog.value = false
       scanProgressData.value = {
         scanning: false,
+        phase: 'completed',
+        phaseMessage: '扫描完成',
         totalFiles: progress.totalFiles,
         successCount: progress.successCount,
         failureCount: progress.failureCount,
-        progressPercentage: '100'
+        progressPercentage: '100',
+        filesToAdd: progress.filesToAdd,
+        filesToUpdate: progress.filesToUpdate,
+        filesToDelete: progress.filesToDelete
       }
       isRefreshing.value = false
       refreshStatus.value = 'success'
@@ -374,7 +455,11 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
 
 // 刷新功能
 const handleRefresh = async () => {
-  if (isRefreshing.value) return
+  // 如果正在扫描，打开进度对话框
+  if (isRefreshing.value) {
+    showScanDialog.value = true
+    return
+  }
 
   try {
     isRefreshing.value = true
@@ -394,6 +479,28 @@ const handleRefresh = async () => {
       refreshStatus.value = 'default'
     }, 3000)
   }
+}
+
+// 停止扫描
+const handleStopScan = () => {
+  ElMessageBox.confirm(
+    '确定要停止扫描吗？已完成的处理将保留。',
+    '停止扫描确认',
+    {
+      confirmButtonText: '确定停止',
+      cancelButtonText: '继续扫描',
+      type: 'warning'
+    }
+  ).then(async () => {
+    try {
+      await systemApi.cancelScan()
+      showScanDialog.value = false
+    } catch (error) {
+      console.error('停止扫描失败:', error)
+    }
+  }).catch(() => {
+    // 用户取消，继续扫描
+  })
 }
 
 const handleDateSelected = (files: MediaFile[], date: string) => {
@@ -439,6 +546,38 @@ onMounted(async () => {
     await scanProgressWs.connect()
     scanProgressWs.onProgress(handleScanProgress)
     console.log('[HomeView] WebSocket 订阅已设置')
+
+    // 检查是否有正在进行的扫描
+    try {
+      const statusResponse = await systemApi.getStatus()
+      if (statusResponse.data.scanning) {
+        // 标记正在扫描，刷新按钮显示进度环
+        isRefreshing.value = true
+        refreshStatus.value = 'refreshing'
+        // 尝试获取当前进度
+        try {
+          const progressResponse = await systemApi.getScanProgress()
+          if (progressResponse.data.scanning) {
+            scanProgressData.value = {
+              scanning: true,
+              phase: 'processing',
+              phaseMessage: '正在恢复扫描进度...',
+              totalFiles: progressResponse.data.totalFiles || 0,
+              successCount: progressResponse.data.successCount || 0,
+              failureCount: progressResponse.data.failureCount || 0,
+              progressPercentage: progressResponse.data.progressPercentage || '0',
+              filesToAdd: progressResponse.data.filesToAdd,
+              filesToUpdate: progressResponse.data.filesToUpdate,
+              filesToDelete: progressResponse.data.filesToDelete
+            }
+          }
+        } catch (e) {
+          console.error('[HomeView] 获取扫描进度失败:', e)
+        }
+      }
+    } catch (e) {
+      console.error('[HomeView] 检查扫描状态失败:', e)
+    }
   } catch (error) {
     console.error('[HomeView] WebSocket 连接失败:', error)
   }
@@ -990,6 +1129,105 @@ onUnmounted(() => {
   
   .mobile-sort-order-toggle span {
     font-size: 13px;
+  }
+}
+
+/* 扫描进度对话框样式 */
+.scan-progress-dialog {
+  --el-dialog-margin-top: 15vh;
+}
+
+.scan-progress-dialog .el-dialog {
+  max-width: 450px;
+}
+
+.scan-progress-dialog .phase-info {
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.scan-progress-dialog .phase-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #409eff;
+}
+
+.scan-progress-dialog .scan-stats {
+  display: flex;
+  justify-content: space-around;
+  margin: 20px 0;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.scan-progress-dialog .stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.scan-progress-dialog .stat-label {
+  font-size: 12px;
+  color: #909399;
+}
+
+.scan-progress-dialog .stat-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.scan-progress-dialog .stat-value.add {
+  color: #67c23a;
+}
+
+.scan-progress-dialog .stat-value.update {
+  color: #409eff;
+}
+
+.scan-progress-dialog .stat-value.delete {
+  color: #f56c6c;
+}
+
+.scan-progress-dialog .processing-info {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.scan-progress-dialog .info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 14px;
+  color: #606266;
+}
+
+.scan-progress-dialog .info-row .error {
+  color: #f56c6c;
+  font-weight: 500;
+}
+
+/* 移动端适配 */
+@media (max-width: 480px) {
+  .scan-progress-dialog .el-dialog {
+    width: 90% !important;
+    margin: 0 auto !important;
+  }
+
+  .scan-progress-dialog .scan-stats {
+    padding: 8px;
+  }
+
+  .scan-progress-dialog .stat-value {
+    font-size: 16px;
+  }
+
+  .scan-progress-dialog .phase-text {
+    font-size: 14px;
   }
 }
 </style>

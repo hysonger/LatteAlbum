@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -22,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -83,7 +85,16 @@ public class FileScannerService {
             logger.error("首次启动扫描检查失败", e);
         }
     }
-    
+
+    /**
+     * 异步扫描目录 - 供 API 调用，避免阻塞
+     */
+    @Async("fileScanExecutor")
+    public CompletableFuture<Void> scanDirectoryAsync() {
+        scanDirectory();
+        return CompletableFuture.completedFuture(null);
+    }
+
     public void scanDirectory() {
         String basePath = applicationConfig.getBasePath();
         logger.info("开始扫描目录: {}", basePath);
@@ -101,16 +112,57 @@ public class FileScannerService {
             currentProgress = new ScanProgress();
             lastProgressUpdateCount = 0;
 
-            // 发送扫描启动消息
-            webSocketService.sendScanStarted();
+            // 阶段1：收集所有文件列表
+            logger.info("阶段1：收集文件列表...");
+            webSocketService.sendPhaseUpdate("collecting", "正在收集文件列表...", 0, 0, 0, "0.00", currentProgress.getStartTime());
+            Set<String> existingFilePaths = collectAllFiles(rootPath);
 
-            if (applicationConfig.isParallelScanEnabled()) {
-                scanDirectoryParallel(rootPath.toFile());
-            } else {
-                scanDirectorySerial(rootPath.toFile());
+            // 阶段2：计算新增、修改、删除的文件数量
+            logger.info("阶段2：计算变更数量...");
+            webSocketService.sendPhaseUpdate("counting", "正在计算变更数量...", 0, 0, 0, "0.00", currentProgress.getStartTime());
+            ScanCounts counts = calculateScanCounts(existingFilePaths);
+
+            // 在 ScanProgress 中保存各阶段数量
+            currentProgress.setFilesToAdd(counts.getFilesToAdd());
+            currentProgress.setFilesToUpdate(counts.getFilesToUpdate());
+            currentProgress.setFilesToDelete(counts.getFilesToDelete());
+
+            logger.info("扫描统计 - 新增: {}, 修改: {}, 删除: {}",
+                counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+
+            // 发送扫描开始消息（包含各阶段数量）
+            webSocketService.sendScanStarted(
+                counts.getFilesToAdd(),
+                counts.getFilesToUpdate(),
+                counts.getFilesToDelete()
+            );
+
+            // 阶段3：处理新增和修改的文件
+            if (counts.getFilesToAdd() > 0 || counts.getFilesToUpdate() > 0) {
+                logger.info("阶段3：处理文件，共 {} 个文件需要处理", counts.getFilesToAdd() + counts.getFilesToUpdate());
+                webSocketService.sendPhaseUpdate("processing", "正在处理文件...",
+                    counts.getFilesToAdd() + counts.getFilesToUpdate(), 0, 0, "0.00", currentProgress.getStartTime(),
+                    counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+
+                if (applicationConfig.isParallelScanEnabled()) {
+                    processFilesParallel(existingFilePaths, counts);
+                } else {
+                    processFilesSerial(existingFilePaths, counts);
+                }
             }
 
-            logger.info("目录扫描完成");
+            // 阶段4：删除不存在的文件
+            if (counts.getFilesToDelete() > 0) {
+                logger.info("阶段4：清理不存在的文件，共 {} 个文件需要删除", counts.getFilesToDelete());
+                webSocketService.sendPhaseUpdate("deleting", "正在清理不存在的文件...",
+                    currentProgress.getSuccessCount(), currentProgress.getSuccessCount(), currentProgress.getFailureCount(),
+                    String.format("%.2f", currentProgress.getProgressPercentage()), currentProgress.getStartTime(),
+                    counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+                detectAndDeleteMissingFiles(existingFilePaths);
+            }
+
+            logger.info("目录扫描完成 - 总文件: {}, 成功: {}, 失败: {}",
+                currentProgress.getTotalFiles(), currentProgress.getSuccessCount(), currentProgress.getFailureCount());
         } catch (Exception e) {
             logger.error("扫描过程中发生错误", e);
             webSocketService.sendScanError(e.getMessage());
@@ -125,117 +177,10 @@ public class FileScannerService {
         }
     }
     
-    private void scanDirectorySerial(File rootPath) {
-        Set<String> existingFilePaths = new HashSet<>();
-        scanDirectoryRecursive(rootPath, null, existingFilePaths);
-        detectAndDeleteMissingFiles(existingFilePaths);
-    }
-    
-    private void scanDirectoryParallel(File rootPath) {
-        logger.info("使用并行模式扫描目录");
-        
-        Set<String> existingFilePaths = ConcurrentHashMap.newKeySet();
-        List<CompletableFuture<Void>> fileProcessingFutures = new ArrayList<>();
-        List<MediaFile> mediaFilesToSave = Collections.synchronizedList(new ArrayList<>());
-        
-        scanDirectoryRecursiveParallel(rootPath, null, existingFilePaths, fileProcessingFutures, mediaFilesToSave);
-        
-        logger.info("等待所有文件处理完成，共 {} 个任务", fileProcessingFutures.size());
-        
-        try {
-            CompletableFuture.allOf(fileProcessingFutures.toArray(new CompletableFuture[0])).get(30, TimeUnit.MINUTES);
-            
-            logger.info("批量保存媒体文件，共 {} 条记录", mediaFilesToSave.size());
-            batchSaveMediaFiles(mediaFilesToSave);
-            
-            detectAndDeleteMissingFiles(existingFilePaths);
-            
-        } catch (TimeoutException e) {
-            logger.error("扫描超时，部分文件可能未处理完成");
-        } catch (Exception e) {
-            logger.error("并行扫描过程中发生错误", e);
-        }
-        
-        logger.info("并行扫描完成 - 总文件数: {}, 成功: {}, 失败: {}", 
-            currentProgress.getTotalFiles(), currentProgress.getSuccessCount(), currentProgress.getFailureCount());
-    }
-    
-    private void scanDirectoryRecursive(File directory, Directory parentDir, Set<String> existingFilePaths) {
-        if (scanCancelled) {
-            return;
-        }
-
-        if (!directory.isDirectory()) {
-            return;
-        }
-
-        Directory dirEntity = createOrUpdateDirectory(directory, parentDir);
-
-        File[] files = directory.listFiles();
-        if (files == null) {
-            return;
-        }
-
-        for (File file : files) {
-            if (scanCancelled) {
-                return;
-            }
-
-            if (file.isDirectory()) {
-                scanDirectoryRecursive(file, dirEntity, existingFilePaths);
-            } else if (file.isFile()) {
-                String extension = getFileExtension(file.getName()).toLowerCase();
-                if (!isSupportedExtension(extension)) {
-                    continue; // 跳过不支持的文件类型
-                }
-                existingFilePaths.add(file.getAbsolutePath());
-                processFile(file, dirEntity);
-            }
-        }
-    }
-
-    private void scanDirectoryRecursiveParallel(File directory, Directory parentDir,
-                                                  Set<String> existingFilePaths,
-                                                  List<CompletableFuture<Void>> fileProcessingFutures,
-                                                  List<MediaFile> mediaFilesToSave) {
-        if (scanCancelled) {
-            return;
-        }
-
-        if (!directory.isDirectory()) {
-            return;
-        }
-
-        Directory dirEntity = createOrUpdateDirectory(directory, parentDir);
-
-        File[] files = directory.listFiles();
-        if (files == null) {
-            return;
-        }
-
-        for (File file : files) {
-            if (scanCancelled) {
-                return;
-            }
-
-            if (file.isDirectory()) {
-                scanDirectoryRecursiveParallel(file, dirEntity, existingFilePaths, fileProcessingFutures, mediaFilesToSave);
-            } else if (file.isFile()) {
-                String extension = getFileExtension(file.getName()).toLowerCase();
-                if (!isSupportedExtension(extension)) {
-                    continue; // 跳过不支持的文件类型
-                }
-                existingFilePaths.add(file.getAbsolutePath());
-                CompletableFuture<Void> future = processFileAsync(file, dirEntity, mediaFilesToSave);
-                fileProcessingFutures.add(future);
-            }
-        }
-    }
-
     private boolean isSupportedExtension(String extension) {
         return IMAGE_EXTENSIONS.contains(extension) || VIDEO_EXTENSIONS.contains(extension);
     }
-    
+
     private Directory createOrUpdateDirectory(File directory, Directory parentDir) {
         String path = directory.getAbsolutePath();
         return directoryRepository.findByPath(path).orElseGet(() -> {
@@ -256,51 +201,6 @@ public class FileScannerService {
         } else if (VIDEO_EXTENSIONS.contains(extension)) {
             processVideoFile(file, directory);
         }
-    }
-    
-    @Async("fileScanExecutor")
-    private CompletableFuture<Void> processFileAsync(File file, Directory directory, List<MediaFile> mediaFilesToSave) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                if (scanCancelled) {
-                    return;
-                }
-
-                currentProgress.incrementTotalFiles();
-                String fileName = file.getName();
-                String extension = getFileExtension(fileName).toLowerCase();
-
-                MediaFile mediaFile = null;
-                if (IMAGE_EXTENSIONS.contains(extension)) {
-                    mediaFile = processImageFile(file, directory, true);
-                } else if (VIDEO_EXTENSIONS.contains(extension)) {
-                    mediaFile = processVideoFile(file, directory, true);
-                }
-
-                if (mediaFile != null) {
-                    mediaFilesToSave.add(mediaFile);
-                    currentProgress.incrementSuccessCount();
-                } else {
-                    currentProgress.incrementFailureCount();
-                    logger.warn("文件处理失败: {}, 扩展名: {}", file.getAbsolutePath(), extension);
-                }
-
-                // 每处理一定数量的文件后推送进度更新
-                long processedCount = currentProgress.getSuccessCount() + currentProgress.getFailureCount();
-                if (processedCount - lastProgressUpdateCount >= PROGRESS_UPDATE_INTERVAL) {
-                    lastProgressUpdateCount = processedCount;
-                    webSocketService.sendProgressUpdate(
-                        currentProgress.getTotalFiles(),
-                        currentProgress.getSuccessCount(),
-                        currentProgress.getFailureCount(),
-                        String.format("%.2f", currentProgress.getProgressPercentage())
-                    );
-                }
-            } catch (Exception e) {
-                logger.error("异步处理文件失败: {}", file.getName(), e);
-                currentProgress.incrementFailureCount();
-            }
-        });
     }
     
     private void processImageFile(File file, Directory directory) {
@@ -448,10 +348,50 @@ public class FileScannerService {
         webSocketService.sendScanCancelled();
     }
     
+    /**
+     * 扫描计数统计类
+     */
+    public static class ScanCounts {
+        private long filesToAdd = 0;
+        private long filesToUpdate = 0;
+        private long filesToDelete = 0;
+
+        public long getFilesToAdd() {
+            return filesToAdd;
+        }
+
+        public void setFilesToAdd(long filesToAdd) {
+            this.filesToAdd = filesToAdd;
+        }
+
+        public long getFilesToUpdate() {
+            return filesToUpdate;
+        }
+
+        public void setFilesToUpdate(long filesToUpdate) {
+            this.filesToUpdate = filesToUpdate;
+        }
+
+        public long getFilesToDelete() {
+            return filesToDelete;
+        }
+
+        public void setFilesToDelete(long filesToDelete) {
+            this.filesToDelete = filesToDelete;
+        }
+
+        public long getTotalToProcess() {
+            return filesToAdd + filesToUpdate;
+        }
+    }
+
     public static class ScanProgress {
         private final AtomicLong totalFiles = new AtomicLong(0);
         private final AtomicLong successCount = new AtomicLong(0);
         private final AtomicLong failureCount = new AtomicLong(0);
+        private final AtomicLong filesToDelete = new AtomicLong(0);
+        private final AtomicLong filesToAdd = new AtomicLong(0);
+        private final AtomicLong filesToUpdate = new AtomicLong(0);
         private final LocalDateTime startTime = LocalDateTime.now();
         
         public long getTotalFiles() {
@@ -489,5 +429,266 @@ public class FileScannerService {
             }
             return (getSuccessCount() + getFailureCount()) * 100.0 / total;
         }
+
+        public long getFilesToDelete() {
+            return filesToDelete.get();
+        }
+
+        public void setFilesToDelete(long count) {
+            filesToDelete.set(count);
+        }
+
+        public void setTotalFiles(long count) {
+            totalFiles.set(count);
+        }
+
+        public void setSuccessCount(long count) {
+            successCount.set(count);
+        }
+
+        public void setFailureCount(long count) {
+            failureCount.set(count);
+        }
+
+        public long getFilesToAdd() {
+            return filesToAdd.get();
+        }
+
+        public void setFilesToAdd(long count) {
+            filesToAdd.set(count);
+        }
+
+        public long getFilesToUpdate() {
+            return filesToUpdate.get();
+        }
+
+        public void setFilesToUpdate(long count) {
+            filesToUpdate.set(count);
+        }
+    }
+
+    /**
+     * 阶段1：收集所有文件列表
+     */
+    private Set<String> collectAllFiles(Path rootPath) {
+        Set<String> filePaths = new HashSet<>();
+        collectFilesRecursive(rootPath, filePaths);
+        logger.info("共收集到 {} 个支持的文件", filePaths.size());
+        return filePaths;
+    }
+
+    /**
+     * 递归收集文件路径
+     */
+    private void collectFilesRecursive(Path directory, Set<String> filePaths) {
+        if (scanCancelled) {
+            return;
+        }
+
+        try {
+            try (var stream = Files.walk(directory)) {
+                stream.filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String extension = getFileExtension(path.getFileName().toString()).toLowerCase();
+                        return isSupportedExtension(extension);
+                    })
+                    .map(Path::toAbsolutePath)
+                    .map(Path::toString)
+                    .forEach(filePaths::add);
+            }
+        } catch (IOException e) {
+            logger.error("遍历目录失败: {}", directory, e);
+        }
+    }
+
+    /**
+     * 阶段2：计算新增、修改、删除的文件数量
+     */
+    private ScanCounts calculateScanCounts(Set<String> existingFilePaths) {
+        ScanCounts counts = new ScanCounts();
+        List<MediaFile> allMediaFiles = mediaFileRepository.findAll();
+
+        for (MediaFile mediaFile : allMediaFiles) {
+            String filePath = mediaFile.getFilePath();
+
+            if (!existingFilePaths.contains(filePath)) {
+                // 文件已删除
+                counts.setFilesToDelete(counts.getFilesToDelete() + 1);
+            } else {
+                // 文件存在，检查是否需要更新
+                Path path = Paths.get(filePath);
+                if (Files.exists(path)) {
+                    LocalDateTime lastModified = LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(path.toFile().lastModified()), ZoneId.systemDefault());
+
+                    if (mediaFile.getLastScanned() == null ||
+                        mediaFile.getLastScanned().isBefore(lastModified)) {
+                        // 文件已修改
+                        counts.setFilesToUpdate(counts.getFilesToUpdate() + 1);
+                    }
+                }
+                // 从existingFilePaths中移除已处理的文件路径
+                existingFilePaths.remove(filePath);
+            }
+        }
+
+        // 剩余的paths就是要新增的文件
+        counts.setFilesToAdd(existingFilePaths.size());
+
+        return counts;
+    }
+
+    /**
+     * 阶段3：串行处理文件
+     */
+    private void processFilesSerial(Set<String> filePaths, ScanCounts counts) {
+        int processed = 0;
+        int total = (int) counts.getTotalToProcess();
+
+        for (String filePath : filePaths) {
+            if (scanCancelled) {
+                return;
+            }
+
+            // 检查是新增还是修改
+            boolean isNew = counts.getFilesToAdd() > 0 && processed < counts.getFilesToAdd();
+            if (!isNew && counts.getFilesToUpdate() > 0) {
+                // 检查是否在修改列表中
+                Path path = Paths.get(filePath);
+                if (Files.exists(path)) {
+                    LocalDateTime lastModified = LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(path.toFile().lastModified()), ZoneId.systemDefault());
+
+                    MediaFile mediaFile = mediaFileRepository.findByFilePath(filePath).orElse(null);
+                    if (mediaFile != null && mediaFile.getLastScanned() != null &&
+                        !mediaFile.getLastScanned().isBefore(lastModified)) {
+                        continue; // 不需要更新
+                    }
+                }
+            }
+
+            File file = new File(filePath);
+            processFile(file, null);
+            processed++;
+
+            // 更新进度
+            currentProgress.incrementTotalFiles();
+            currentProgress.incrementSuccessCount();
+
+            if (processed % PROGRESS_UPDATE_INTERVAL == 0) {
+                webSocketService.sendPhaseUpdate("processing", "正在处理文件...",
+                    total, processed, 0,
+                    String.format("%.2f", processed * 100.0 / total), currentProgress.getStartTime(),
+                    counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+            }
+        }
+    }
+
+    /**
+     * 阶段3：并行处理文件
+     */
+    private void processFilesParallel(Set<String> filePaths, ScanCounts counts) {
+        Set<String> concurrentFilePaths = ConcurrentHashMap.newKeySet();
+        concurrentFilePaths.addAll(filePaths);
+
+        List<CompletableFuture<Void>> fileProcessingFutures = new ArrayList<>();
+        List<MediaFile> mediaFilesToSave = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger failedCount = new AtomicInteger(0);
+        int total = (int) counts.getTotalToProcess();
+
+        for (String filePath : concurrentFilePaths) {
+            if (scanCancelled) {
+                return;
+            }
+
+            CompletableFuture<Void> future = processFileAsync(filePath, mediaFilesToSave, processedCount, failedCount);
+            fileProcessingFutures.add(future);
+        }
+
+        logger.info("等待所有文件处理完成，共 {} 个任务", fileProcessingFutures.size());
+
+        // 定期发送进度更新
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(() -> {
+            if (scanCancelled || !isScanning) {
+                scheduler.shutdown();
+                return;
+            }
+
+            int processed = processedCount.get() + failedCount.get();
+            if (processed > 0 && processed <= total) {
+                webSocketService.sendPhaseUpdate("processing", "正在处理文件...",
+                    total, processedCount.get(), failedCount.get(),
+                    String.format("%.2f", processed * 100.0 / total), currentProgress.getStartTime(),
+                    counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+            }
+        }, 500, 500, TimeUnit.MILLISECONDS);
+
+        try {
+            CompletableFuture.allOf(fileProcessingFutures.toArray(new CompletableFuture[0])).get(30, TimeUnit.MINUTES);
+
+            scheduler.shutdown();
+            logger.info("批量保存媒体文件，共 {} 条记录", mediaFilesToSave.size());
+            batchSaveMediaFiles(mediaFilesToSave);
+
+            currentProgress.setTotalFiles(total);
+            currentProgress.setSuccessCount(mediaFilesToSave.size());
+
+            // 发送完成进度
+            webSocketService.sendPhaseUpdate("processing", "文件处理完成",
+                total, mediaFilesToSave.size(), 0,
+                String.format("%.2f", 100.0), currentProgress.getStartTime(),
+                counts.getFilesToAdd(), counts.getFilesToUpdate(), counts.getFilesToDelete());
+
+        } catch (TimeoutException e) {
+            logger.error("扫描超时，部分文件可能未处理完成");
+            scheduler.shutdown();
+        } catch (Exception e) {
+            logger.error("并行扫描过程中发生错误", e);
+            scheduler.shutdown();
+        }
+    }
+
+    /**
+     * 异步处理单个文件
+     */
+    @Async("fileScanExecutor")
+    private CompletableFuture<Void> processFileAsync(String filePath, List<MediaFile> mediaFilesToSave,
+                                                      AtomicInteger processedCount, AtomicInteger failedCount) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                if (scanCancelled) {
+                    return;
+                }
+
+                File file = new File(filePath);
+                if (!file.exists() || !file.isFile()) {
+                    return;
+                }
+
+                String extension = getFileExtension(file.getName()).toLowerCase();
+                MediaFile mediaFile = null;
+
+                if (IMAGE_EXTENSIONS.contains(extension)) {
+                    mediaFile = processImageFile(file, null, true);
+                } else if (VIDEO_EXTENSIONS.contains(extension)) {
+                    mediaFile = processVideoFile(file, null, true);
+                }
+
+                if (mediaFile != null) {
+                    synchronized (mediaFilesToSave) {
+                        mediaFilesToSave.add(mediaFile);
+                    }
+                    processedCount.incrementAndGet();
+                } else {
+                    failedCount.incrementAndGet();
+                    logger.warn("文件处理失败: {}, 扩展名: {}", file.getAbsolutePath(), extension);
+                }
+            } catch (Exception e) {
+                failedCount.incrementAndGet();
+                logger.error("异步处理文件失败: {}", filePath, e);
+            }
+        });
     }
 }

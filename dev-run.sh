@@ -28,4 +28,4 @@ mkdir -p "${ALBUM_CACHE_DIR:-./cache}"
 mkdir -p "${ALBUM_BASE_PATH:-./photos}"
 
 # 直接运行（开发模式，修改代码后可快速重启）
-exec mvn spring-boot:run -DskipTests -Dspring-boot.run.jvmArguments="-Xmx1g -Xms256m"
+exec mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Xmx1g -Xms256m"
