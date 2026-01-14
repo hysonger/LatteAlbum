@@ -36,6 +36,7 @@ mvn test -Dtest=ClassName            # Specific test class
 ### Backend Structure
 - `controller/` - REST API endpoints (prefix: `/album/api`)
 - `service/` - Business logic
+  - `processor/` - Media format processors (strategy pattern)
 - `repository/` - Data access (JPA/SQLite)
 - `model/` - JPA entities
 - `dto/` - Request/response objects
@@ -47,13 +48,22 @@ mvn test -Dtest=ClassName            # Specific test class
 | Service | Responsibility |
 |---------|---------------|
 | `FileScannerService` | Scans directories, extracts EXIF, generates thumbnails |
-| `MediaProcessorService` | Image/video processing, metadata extraction, thumbnail generation |
+| `MediaProcessorService` | Media processor coordinator (routing only, no processing logic) |
 | `MediaFileService` | Query, filter, paginate media files |
 | `CacheService` | Two-level caching (Caffeine memory + disk) |
-| `HeifProcessorService` | Async HEIF/HEIC conversion |
+| `HeifProcessorService` | HEIF/HEIC to JPEG conversion (used by HeifImageProcessor) |
 | `VideoProcessorService` | Video metadata extraction and thumbnail generation |
 | `ScanProgressWebSocketService` | Real-time scan progress broadcasting |
 | `TimeUtils` | Time validation and effective sort time calculation |
+
+### Media Processors (Strategy Pattern)
+| Processor | Type | Extensions | Priority |
+|-----------|------|------------|----------|
+| `HeifImageProcessor` | HEIF | .heic, .heif | 100 |
+| `StandardImageProcessor` | IMAGE | .jpg, .jpeg, .png, .gif, .bmp, .webp, .tiff | 10 |
+| `VideoProcessor` | VIDEO | .mp4, .avi, .mov, .mkv, .wmv, .flv, .webm | 10 |
+
+Processors are auto-registered via Spring DI. Higher priority processors match first.
 
 ### Async Thread Pools (AsyncConfig)
 | Executor | Core Pool | Max Pool | Queue | Purpose |
@@ -174,6 +184,12 @@ if (mediaFile.getLastScanned() == null ||
 
 ### Metadata Extraction
 
+**Architecture** (Template Method Pattern):
+- `AbstractImageProcessor` - Base class with common EXIF parsing logic
+- `StandardImageProcessor` / `HeifImageProcessor` - Extend base, implement `getImageDimensions()`
+
+This eliminates code duplication between image format handlers.
+
 **EXIF Fields** (using `metadata-extractor` library):
 | Field | EXIF Tag | Description |
 |-------|----------|-------------|
@@ -192,11 +208,22 @@ if (mediaFile.getLastScanned() == null ||
 
 ### Thumbnail Generation
 
+**Architecture** (Strategy Pattern):
+```
+MediaProcessorService (Coordinator)
+    ↓ findProcessor(file)
+    ↓
+MediaProcessor implementations:
+- StandardImageProcessor → thumbnailator library
+- HeifImageProcessor → HeifProcessorService.convertToJpegBytes()
+- VideoProcessor → VideoProcessorService.generateThumbnail()
+```
+
 **Process Flow**:
-1. Detect file type (image/video/HEIF)
-2. Video: Use `VideoProcessorService.extractThumbnail()`
-3. HEIF: Convert to JPEG first via `HeifProcessorService`, then resize
-4. Regular images: Use `thumbnailator` library directly
+1. `CacheService` requests thumbnail via `MediaProcessorService`
+2. `MediaProcessorService.findProcessor(file)` returns matching processor
+3. Processor generates thumbnail (using its specific implementation)
+4. All async methods use `thumbnailGenerationExecutor` thread pool
 
 **Thumbnail Sizes**:
 | Size | Pixels | Use Case |
@@ -209,7 +236,16 @@ if (mediaFile.getLastScanned() == null ||
 
 ### HEIF/HEIC Support
 
+**Architecture**:
+- `HeifImageProcessor` - Strategy implementation, handles HEIF files
+- `HeifProcessorService` - Low-level conversion utilities (injected into processor)
+
 **Formats**: `.heic`, `.heif` (case-insensitive)
+
+**Processing Flow**:
+1. `HeifImageProcessor.supports()` detects HEIF files
+2. `HeifImageProcessor.process()` extracts metadata via `HeifProcessorService`
+3. `HeifImageProcessor.generateThumbnail()` converts to JPEG and resizes
 
 **Conversion**:
 - Uses external tools: `heif-convert`, `heif-info` (from libheif)
@@ -217,10 +253,10 @@ if (mediaFile.getLastScanned() == null ||
 - Extracts dimensions via `heif-info` command
 
 **Async Processing**:
-- Uses `@Async("heifConversionExecutor")`
+- HeifImageProcessor uses `thumbnailGenerationExecutor` for thumbnails
 - Fallback: Serve original file if conversion unavailable
 
-**Method Examples**:
+**Method Examples** (via HeifProcessorService):
 ```java
 // Synchronous conversion
 convertToJpeg(File input, File output)
@@ -229,12 +265,21 @@ convertToJpeg(File input, File output)
 convertHeif(File input, File output, String format, Integer quality)
 
 // Direct thumbnail generation
-generateThumbnail(File input, int targetWidth)
+generateThumbnail(File input, int targetWidth, int quality)
 ```
 
 ### Video Processing
 
+**Architecture**:
+- `VideoProcessor` - Strategy implementation, handles video files
+- `VideoProcessorService` - Low-level encoding utilities (injected into processor)
+
 **Library**: `jave` (Java Audio Video Encoder)
+
+**Processing Flow**:
+1. `VideoProcessor.supports()` detects video files by extension
+2. `VideoProcessor.process()` delegates to `VideoProcessorService.extractVideoMetadata()`
+3. `VideoProcessor.generateThumbnail()` delegates to `VideoProcessorService.generateThumbnail()`
 
 **Extracted Metadata**:
 - Duration (seconds)
@@ -367,10 +412,32 @@ public class MediaFile {
 
 ### Common Tasks
 
-**Add new file format support**:
-1. Add extension to `IMAGE_EXTENSIONS` or `VIDEO_EXTENSIONS` in `FileScannerService`
-2. Add processing logic in `MediaProcessorService.processImage/processVideo`
-3. Update `SUPPORTED_FORMATS` in frontend if needed
+**Add new file format support** (Strategy Pattern):
+1. Create new processor class implementing `MediaProcessor` interface
+2. Extend `AbstractImageProcessor` for image formats (inherits EXIF parsing)
+3. Add `@Component` annotation for Spring auto-registration
+4. Define supported extensions in `supports()` method
+5. Set appropriate priority (higher = matches first)
+6. Update `SUPPORTED_FORMATS` in frontend if needed
+
+**Example** (adding RAW format support):
+```java
+@Component
+public class RawImageProcessor extends AbstractImageProcessor {
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".dng", ".cr2", ".nef");
+
+    @Override
+    public MediaType getMediaType() { return MediaType.RAW; }
+
+    @Override
+    public boolean supports(File file) { /* check extension */ }
+
+    @Override
+    protected int[] getImageDimensions(File file) throws IOException {
+        // Use ImageIO or specialized library
+    }
+}
+```
 
 **Modify thumbnail sizes**:
 1. Update `album.thumbnail.{small|medium|large}` in `application.yml`
@@ -378,7 +445,7 @@ public class MediaFile {
 
 **Add new EXIF field**:
 1. Add field to `MediaFile` entity
-2. Extract in `MediaProcessorService.extractExifMetadata()`
+2. Extract in `AbstractImageProcessor.extractExifMetadata()`
 3. Add to TypeScript interface in `frontend/src/types/index.ts`
 4. Update frontend display components
 
@@ -410,11 +477,21 @@ These rules must be followed when making changes to this codebase:
 |------|----------------|
 | `MediaFileService.java` | Query logic with filters, effective time sorting, neighbor navigation |
 | `FileScannerService.java` | Directory scanning, EXIF extraction, thumbnail generation, incremental update |
-| `MediaProcessorService.java` | Image/video processing entry, EXIF extraction, thumbnail orchestration |
+| `MediaProcessorService.java` | Media processor coordinator - routes to appropriate processor |
 | `CacheService.java` | Three-level cache (memory → disk → generate) for thumbnails |
-| `HeifProcessorService.java` | HEIF/HEIC to JPEG conversion, async thumbnail generation |
+| `HeifProcessorService.java` | HEIF/HEIC to JPEG conversion (used by HeifImageProcessor) |
 | `VideoProcessorService.java` | Video metadata extraction, preview thumbnail generation |
 | `ScanProgressWebSocketService.java` | Real-time progress broadcasting via WebSocket/STOMP |
+
+### Backend - Processor Layer (Strategy Pattern)
+
+| File | Responsibility |
+|------|----------------|
+| `processor/MediaProcessor.java` | Interface defining processor contract |
+| `processor/AbstractImageProcessor.java` | Abstract base with common EXIF parsing (eliminates code duplication) |
+| `processor/StandardImageProcessor.java` | Handles jpg/png/gif/webp/tiff (uses thumbnailator) |
+| `processor/HeifImageProcessor.java` | Handles heic/heif (delegates to HeifProcessorService) |
+| `processor/VideoProcessor.java` | Handles mp4/avi/mov/mkv (delegates to VideoProcessorService) |
 
 ### Backend - Repository Layer
 
