@@ -17,23 +17,30 @@ impl FileService {
     }
 
     /// Get thumbnail for a file
+    /// For "full" size (target_width == 0), returns full-size transcoded image without caching
     pub async fn get_thumbnail(
         &self,
         file_id: &str,
         target_width: u32,
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
-        // Try cache first
-        let size_label = match target_width {
-            w if w <= 300 => "small",
-            w if w <= 450 => "medium",
-            _ => "large",
-        };
+        // Check if this is a full-size request
+        let is_full_size = target_width == 0;
 
-        if let Some(data) = self.cache.get_thumbnail(file_id, size_label).await {
-            return Ok(Some(data));
+        // For full-size requests, skip cache (images are too large)
+        // Also skip size_label calculation since we're not caching
+        if !is_full_size {
+            let size_label = match target_width {
+                w if w <= 300 => "small",
+                w if w <= 450 => "medium",
+                _ => "large",
+            };
+
+            if let Some(data) = self.cache.get_thumbnail(file_id, size_label).await {
+                return Ok(Some(data));
+            }
         }
 
-        // Not in cache, generate thumbnail
+        // Not in cache or full-size request, generate thumbnail
         let repo = MediaFileRepository::new(&self.db);
 
         match repo.find_by_id(file_id).await {
@@ -42,10 +49,17 @@ impl FileService {
                 if path.exists() {
                     // Find appropriate processor
                     if let Some(processor) = self.processors.find_processor(path) {
-                        match processor.generate_thumbnail(path, target_width, 0.8).await {
+                        match processor.generate_thumbnail(path, target_width, 0.9).await {
                             Ok(Some(thumbnail_data)) => {
-                                // Cache the generated thumbnail
-                                let _ = self.cache.put_thumbnail(file_id, size_label, &thumbnail_data).await;
+                                // Cache the generated thumbnail (only for non-full sizes)
+                                if !is_full_size {
+                                    let size_label = match target_width {
+                                        w if w <= 300 => "small",
+                                        w if w <= 450 => "medium",
+                                        _ => "large",
+                                    };
+                                    let _ = self.cache.put_thumbnail(file_id, size_label, &thumbnail_data).await;
+                                }
                                 return Ok(Some(thumbnail_data));
                             }
                             Ok(None) => {
@@ -71,7 +85,12 @@ impl FileService {
         }
 
         // Fallback: try to read original file as thumbnail for images
-        self.generate_fallback_thumbnail(file_id).await
+        // Skip fallback for full-size requests (they should go through proper processing)
+        if !is_full_size {
+            self.generate_fallback_thumbnail(file_id).await
+        } else {
+            Ok(None)
+        }
     }
 
     /// Generate a fallback thumbnail from the original file

@@ -258,6 +258,8 @@ const loadMedia = async () => {
       isConverting.value = isHeif
 
       // 并行请求 full 和 large，优先显示先返回的
+      // full: 全尺寸转码图（JPEG格式，节省流量）
+      // large: 大尺寸缩略图作为备选/占位图
       const fullRequest = fileApi.getThumbnail(currentFile.value.id, 'full')
       const largeRequest = fileApi.getThumbnail(currentFile.value.id, 'large')
 

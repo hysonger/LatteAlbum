@@ -88,11 +88,13 @@ impl Config {
     }
 
     /// Get thumbnail size dimension
+    /// Returns 0 for "full" size to indicate no resizing (full-size transcoded output)
     pub fn get_thumbnail_size(&self, size: &str) -> u32 {
         match size {
             "small" => self.thumbnail_small,
             "medium" => self.thumbnail_medium,
             "large" => self.thumbnail_large,
+            "full" => 0, // 0 indicates full-size transcoded output (no resizing)
             _ => self.thumbnail_medium,
         }
     }

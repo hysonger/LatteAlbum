@@ -39,22 +39,9 @@ impl MediaProcessor for VideoProcessor {
     async fn process(&self, path: &Path) -> Result<MediaMetadata, ProcessingError> {
         let mut metadata = MediaMetadata::default();
 
-        // Get file size
-        if let Ok(metadata_file) = path.metadata() {
-            metadata.file_size = Some(metadata_file.len() as i64);
-            metadata.create_time = metadata_file
-                .created()
-                .ok()
-                .and_then(|t| system_time_to_naive_datetime(t));
-            metadata.modify_time = metadata_file
-                .modified()
-                .ok()
-                .and_then(|t| system_time_to_naive_datetime(t));
-        }
-
         #[cfg(feature = "video-processing")]
         {
-            // Try to extract video metadata using FFmpeg
+            // Try to extract video metadata using FFmpeg (format-specific)
             match extract_video_metadata(path) {
                 Ok((width, height, duration, codec)) => {
                     metadata.width = width;
@@ -164,12 +151,4 @@ fn generate_video_thumbnail(
     // In a full implementation, this would use FFmpeg to extract a frame
     // For now, return an empty placeholder
     Ok(vec![])
-}
-
-/// Convert std::time::SystemTime to chrono::NaiveDateTime
-fn system_time_to_naive_datetime(time: std::time::SystemTime) -> Option<chrono::NaiveDateTime> {
-    let duration = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
-    chrono::NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0)
 }

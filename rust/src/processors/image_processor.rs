@@ -2,7 +2,6 @@ use crate::processors::processor_trait::{MediaMetadata, MediaProcessor, MediaTyp
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
 /// Standard image processor for JPEG, PNG, GIF, WebP, TIFF, BMP
 pub struct StandardImageProcessor;
@@ -36,30 +35,7 @@ impl MediaProcessor for StandardImageProcessor {
     async fn process(&self, path: &Path) -> Result<MediaMetadata, ProcessingError> {
         let mut metadata = MediaMetadata::default();
 
-        // Get file size
-        if let Ok(metadata_file) = path.metadata() {
-            metadata.file_size = Some(metadata_file.len() as i64);
-
-            // Extract create time
-            if let Ok(created) = metadata_file.created() {
-                if let Ok(duration) = duration_since_unix_epoch(created) {
-                    if let Some(ts) = NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0) {
-                        metadata.create_time = Some(ts);
-                    }
-                }
-            }
-
-            // Extract modify time
-            if let Ok(modified) = metadata_file.modified() {
-                if let Ok(duration) = duration_since_unix_epoch(modified) {
-                    if let Some(ts) = NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0) {
-                        metadata.modify_time = Some(ts);
-                    }
-                }
-            }
-        }
-
-        // Get dimensions
+        // Get dimensions (format-specific for standard images)
         let (width, height) = get_image_dimensions(path)?;
         metadata.width = Some(width as i32);
         metadata.height = Some(height as i32);
@@ -95,19 +71,24 @@ impl MediaProcessor for StandardImageProcessor {
 
             let img = ImageReader::open(path)?.decode()?;
 
-            let ratio = img.height() as f64 / img.width() as f64;
-            let target_height = (target_width as f64 * ratio) as u32;
-
-            let thumbnail = img
-                .resize(target_width, target_height, image::imageops::FilterType::Lanczos3)
-                .to_rgb8();
+            // If target_width is 0, return full-size transcoded image (no resize)
+            let result_img = if target_width == 0 {
+                // Full size - just convert to RGB JPEG without resizing
+                img.to_rgb8()
+            } else {
+                // Resize to target dimensions
+                let ratio = img.height() as f64 / img.width() as f64;
+                let target_height = (target_width as f64 * ratio) as u32;
+                img.resize(target_width, target_height, image::imageops::FilterType::Lanczos3)
+                    .to_rgb8()
+            };
 
             let mut bytes = Vec::new();
             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
                 &mut bytes,
                 (quality * 100.0) as u8,
             );
-            encoder.encode_image(&thumbnail)?;
+            encoder.encode_image(&result_img)?;
 
             Ok(Some(bytes))
         })
@@ -121,11 +102,6 @@ fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> {
 
     let img = ImageReader::open(path)?.decode()?;
     Ok(img.dimensions())
-}
-
-/// Convert SystemTime to Duration since Unix epoch
-fn duration_since_unix_epoch(time: std::time::SystemTime) -> Result<std::time::Duration, std::time::SystemTimeError> {
-    time.duration_since(UNIX_EPOCH)
 }
 
 /// Extract EXIF metadata from JPEG files

@@ -296,8 +296,11 @@ impl ScanService {
             Box::new(std::io::Error::new(std::io::ErrorKind::Unsupported, "No processor found"))
         })?;
 
-        // Process file
-        let metadata = processor.process(path).await?;
+        // Extract file metadata first (file_size, create_time, modify_time - format independent)
+        let file_metadata = crate::processors::file_metadata::extract_file_metadata(path);
+
+        // Process file to get format-specific metadata
+        let format_metadata = processor.process(path).await?;
 
         // Create or update media file record
         let file_name = path.file_name()
@@ -317,24 +320,27 @@ impl ScanService {
             file_type.to_string(),
         );
 
-        // Apply metadata
-        media_file.mime_type = metadata.mime_type;
-        media_file.file_size = metadata.file_size;
-        media_file.width = metadata.width;
-        media_file.height = metadata.height;
-        media_file.exif_timestamp = metadata.exif_timestamp;
-        media_file.exif_timezone_offset = metadata.exif_timezone_offset;
-        media_file.create_time = metadata.create_time;
-        media_file.modify_time = metadata.modify_time;
-        media_file.camera_make = metadata.camera_make;
-        media_file.camera_model = metadata.camera_model;
-        media_file.lens_model = metadata.lens_model;
-        media_file.exposure_time = metadata.exposure_time;
-        media_file.aperture = metadata.aperture;
-        media_file.iso = metadata.iso;
-        media_file.focal_length = metadata.focal_length;
-        media_file.duration = metadata.duration;
-        media_file.video_codec = metadata.video_codec;
+        // Apply file metadata (from extract_file_metadata)
+        media_file.file_size = file_metadata.file_size;
+        media_file.create_time = file_metadata.create_time;
+        media_file.modify_time = file_metadata.modify_time;
+
+        // Apply format-specific metadata (from processor)
+        // These override file metadata if present (for fields that exist in both)
+        media_file.mime_type = format_metadata.mime_type;
+        media_file.width = format_metadata.width;
+        media_file.height = format_metadata.height;
+        media_file.exif_timestamp = format_metadata.exif_timestamp;
+        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset;
+        media_file.camera_make = format_metadata.camera_make;
+        media_file.camera_model = format_metadata.camera_model;
+        media_file.lens_model = format_metadata.lens_model;
+        media_file.exposure_time = format_metadata.exposure_time;
+        media_file.aperture = format_metadata.aperture;
+        media_file.iso = format_metadata.iso;
+        media_file.focal_length = format_metadata.focal_length;
+        media_file.duration = format_metadata.duration;
+        media_file.video_codec = format_metadata.video_codec;
 
         // Upsert to database
         repo.upsert(&media_file).await?;

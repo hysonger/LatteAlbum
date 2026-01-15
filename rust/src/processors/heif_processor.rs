@@ -38,12 +38,7 @@ impl MediaProcessor for HeifImageProcessor {
     async fn process(&self, path: &Path) -> Result<MediaMetadata, ProcessingError> {
         let mut metadata = MediaMetadata::default();
 
-        // Get file size
-        if let Ok(metadata_file) = path.metadata() {
-            metadata.file_size = Some(metadata_file.len() as i64);
-        }
-
-        // Use libheif-rs to read HEIC dimensions
+        // Use libheif-rs to read HEIC dimensions (format-specific)
         let path = path.to_path_buf();
         let dimensions = tokio::task::spawn_blocking(move || {
             let path_str = path.to_string_lossy();
@@ -87,16 +82,23 @@ impl MediaProcessor for HeifImageProcessor {
                 None,
             ).map_err(|e| ProcessingError::Processing(e.to_string()))?;
 
-            // Calculate target height maintaining aspect ratio
-            let ratio = image.height() as f64 / image.width() as f64;
-            let target_height = (target_width as f64 * ratio) as u32;
-
-            // Scale if needed
-            let scaled = if image.width() > target_width || image.height() > target_height {
-                image.scale(target_width, target_height, None)
-                    .map_err(|e| ProcessingError::Processing(e.to_string()))?
-            } else {
+            // If target_width is 0, use full size (no resize)
+            // Otherwise scale to target dimensions
+            let scaled = if target_width == 0 {
+                // Full size - use original dimensions
                 image
+            } else {
+                // Calculate target height maintaining aspect ratio
+                let ratio = image.height() as f64 / image.width() as f64;
+                let target_height = (target_width as f64 * ratio) as u32;
+
+                // Scale if needed
+                if image.width() > target_width || image.height() > target_height {
+                    image.scale(target_width, target_height, None)
+                        .map_err(|e| ProcessingError::Processing(e.to_string()))?
+                } else {
+                    image
+                }
             };
 
             // Get interleaved RGBA data
