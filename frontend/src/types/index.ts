@@ -34,12 +34,9 @@ export interface Directory {
 }
 
 export interface PaginatedResponse<T> {
-  content: T[]
-  totalPages: number
-  totalElements: number
-  numberOfElements: number
+  items: T[]
+  total: number
+  page: number
   size: number
-  number: number
-  first: boolean
-  last: boolean
+  totalPages: number
 }

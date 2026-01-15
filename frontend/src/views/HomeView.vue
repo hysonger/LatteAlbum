@@ -171,7 +171,7 @@
       v-model="showScanDialog"
       title="扫描进度"
       :close-on-click-modal="false"
-      width="90%"
+      width="420px"
       class="scan-progress-dialog"
       :append-to-body="true"
     >
@@ -1137,10 +1137,6 @@ onUnmounted(() => {
   --el-dialog-margin-top: 15vh;
 }
 
-.scan-progress-dialog .el-dialog {
-  max-width: 450px;
-}
-
 .scan-progress-dialog .phase-info {
   margin-bottom: 16px;
   text-align: center;
@@ -1215,7 +1211,7 @@ onUnmounted(() => {
 @media (max-width: 480px) {
   .scan-progress-dialog .el-dialog {
     width: 90% !important;
-    margin: 0 auto !important;
+    max-width: 360px;
   }
 
   .scan-progress-dialog .scan-stats {

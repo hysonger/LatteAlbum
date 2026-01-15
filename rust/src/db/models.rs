@@ -32,16 +32,20 @@ impl From<&str> for FileType {
 
 /// Media file entity
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MediaFile {
     pub id: String,
+    #[serde(rename = "filePath")]
     pub file_path: String,
+    #[serde(rename = "fileName")]
     pub file_name: String,
+    #[serde(rename = "fileType")]
     pub file_type: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mimeType")]
     pub mime_type: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "fileSize")]
     pub file_size: Option<i64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,31 +54,31 @@ pub struct MediaFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "exifTimestamp")]
     pub exif_timestamp: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "exifTimezoneOffset")]
     pub exif_timezone_offset: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "createTime")]
     pub create_time: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "modifyTime")]
     pub modify_time: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "lastScanned")]
     pub last_scanned: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cameraMake")]
     pub camera_make: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "cameraModel")]
     pub camera_model: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "lensModel")]
     pub lens_model: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "exposureTime")]
     pub exposure_time: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,15 +87,16 @@ pub struct MediaFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iso: Option<i32>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "focalLength")]
     pub focal_length: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "videoCodec")]
     pub video_codec: Option<String>,
 
+    #[serde(rename = "thumbnailGenerated")]
     pub thumbnail_generated: bool,
 }
 

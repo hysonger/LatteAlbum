@@ -251,6 +251,14 @@ impl<'a> MediaFileRepository<'a> {
 
         Ok(())
     }
+
+    /// Check if database is empty (no files scanned yet)
+    pub async fn is_empty(&self) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_files")
+            .fetch_one(self.db.get_pool())
+            .await?;
+        Ok(count == 0)
+    }
 }
 
 /// Repository for directory operations

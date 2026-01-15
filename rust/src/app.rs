@@ -1,6 +1,6 @@
 use crate::api::{files, directories, system};
 use crate::config::Config;
-use crate::db::DatabasePool;
+use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::{ProcessorRegistry, image_processor::StandardImageProcessor, heif_processor::HeifImageProcessor, video_processor::VideoProcessor};
 use crate::services::{FileService, ScanService, CacheService, Scheduler};
 use crate::websocket::ScanProgressBroadcaster;
@@ -70,6 +70,7 @@ impl App {
         let file_service = Arc::new(FileService::new(
             db.clone(),
             cache_service.clone(),
+            processors.clone(),
         ));
 
         let state = AppState {
@@ -161,10 +162,17 @@ impl App {
     }
 
     /// Run the application
-    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         let addr = format!("{}:{}", self.state.config.host, self.state.config.port);
         let listener = TcpListener::bind(&addr).await?;
         info!("Server listening on {}", addr);
+
+        // Check if first run (database empty) and trigger initial scan
+        let repo = MediaFileRepository::new(&self.state.db);
+        if repo.is_empty().await? {
+            info!("First run detected - starting initial scan...");
+            self.state.scan_service.scan(true).await;
+        }
 
         // Start scheduler
         let scheduler = Scheduler::new(

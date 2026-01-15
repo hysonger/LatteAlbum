@@ -37,12 +37,12 @@ export const useGalleryStore = defineStore('gallery', () => {
       })
       
       if (page === 0) {
-        items.value = response.data.content
+        items.value = response.data.items
       } else {
-        items.value.push(...response.data.content)
+        items.value.push(...response.data.items)
       }
       
-      hasMore.value = !response.data.last
+      hasMore.value = response.data.page < response.data.totalPages - 1
       currentPage.value = page
       
       // 预加载下一批图片

@@ -22,9 +22,6 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono"] }
 # Image processing
 image = { version = "0.25", features = ["png", "jpeg", "gif", "webp", "tiff"] }
 
-# EXIF extraction (pure Rust)
-little_exif = "0.6"
-
 # Video processing (FFmpeg) - optional
 ffmpeg-next = { version = "7", optional = true }
 
@@ -57,6 +54,11 @@ tokio-stream = "0.1"
 
 # Scheduling
 tokio-cron-scheduler = "0.12"
+
+# EXIF Support
+kamadak-exif = "0.6.1"
+
+libheif-rs = "2.5.2"
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

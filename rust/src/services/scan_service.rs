@@ -339,20 +339,8 @@ impl ScanService {
         // Upsert to database
         repo.upsert(&media_file).await?;
 
-        // Generate thumbnail if needed
-        if !media_file.thumbnail_generated {
-            if let Ok(Some(thumbnail)) = processor
-                .generate_thumbnail(path, 450, 0.8)
-                .await
-            {
-                let file_id = &media_file.id;
-                self.cache.put_thumbnail(file_id, "medium", &thumbnail).await?;
-                self.cache.put_thumbnail(file_id, "small", &thumbnail).await?;
-                self.cache.put_thumbnail(file_id, "large", &thumbnail).await?;
-
-                let _ = repo.update_thumbnail_status(file_id, true).await;
-            }
-        }
+        // Note: Thumbnail generation is done on-demand when thumbnail API is called
+        // This improves initial scan performance significantly
 
         Ok(())
     }

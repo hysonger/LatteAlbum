@@ -83,7 +83,7 @@ const handleDateChange = async (value: string | null) => {
         order: galleryStore.sortOrder,
         filterType: galleryStore.filterType
       })
-      emit('date-selected', response.data.content, value)
+      emit('date-selected', response.data.items, value)
     } catch (error) {
       console.error('获取指定日期文件失败:', error)
     }
@@ -109,7 +109,7 @@ const navigateDate = async (direction: number) => {
       order: galleryStore.sortOrder,
       filterType: galleryStore.filterType
     })
-    emit('date-selected', response.data.content, newDate)
+    emit('date-selected', response.data.items, newDate)
   } catch (error) {
     console.error('获取指定日期文件失败:', error)
   }
@@ -133,7 +133,7 @@ watch(() => [galleryStore.sortBy, galleryStore.sortOrder, galleryStore.filterTyp
         order: galleryStore.sortOrder,
         filterType: galleryStore.filterType
       })
-      emit('date-selected', response.data.content, selectedDate.value)
+      emit('date-selected', response.data.items, selectedDate.value)
     } catch (error) {
       console.error('重新加载日期文件失败:', error)
     }

@@ -1,6 +1,8 @@
 use crate::processors::processor_trait::{MediaMetadata, MediaProcessor, MediaType, ProcessingError};
 use async_trait::async_trait;
+use chrono::NaiveDateTime;
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 
 /// Standard image processor for JPEG, PNG, GIF, WebP, TIFF, BMP
 pub struct StandardImageProcessor;
@@ -37,12 +39,33 @@ impl MediaProcessor for StandardImageProcessor {
         // Get file size
         if let Ok(metadata_file) = path.metadata() {
             metadata.file_size = Some(metadata_file.len() as i64);
+
+            // Extract create time
+            if let Ok(created) = metadata_file.created() {
+                if let Ok(duration) = duration_since_unix_epoch(created) {
+                    if let Some(ts) = NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0) {
+                        metadata.create_time = Some(ts);
+                    }
+                }
+            }
+
+            // Extract modify time
+            if let Ok(modified) = metadata_file.modified() {
+                if let Ok(duration) = duration_since_unix_epoch(modified) {
+                    if let Some(ts) = NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0) {
+                        metadata.modify_time = Some(ts);
+                    }
+                }
+            }
         }
 
         // Get dimensions
         let (width, height) = get_image_dimensions(path)?;
         metadata.width = Some(width as i32);
         metadata.height = Some(height as i32);
+
+        // Extract EXIF metadata for all supported image formats
+        extract_jpeg_exif(path, &mut metadata);
 
         // Set MIME type
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -98,4 +121,51 @@ fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> {
 
     let img = ImageReader::open(path)?.decode()?;
     Ok(img.dimensions())
+}
+
+/// Convert SystemTime to Duration since Unix epoch
+fn duration_since_unix_epoch(time: std::time::SystemTime) -> Result<std::time::Duration, std::time::SystemTimeError> {
+    time.duration_since(UNIX_EPOCH)
+}
+
+/// Extract EXIF metadata from JPEG files
+fn extract_jpeg_exif(path: &Path, metadata: &mut MediaMetadata) {
+    use exif::Reader;
+
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+
+    // Use Reader to parse EXIF data from the image file
+    let exif = match Reader::new().read_from_container(&mut std::io::BufReader::new(file)) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for field in exif.fields() {
+        let tag = field.tag;
+        let value_str = field.value.display_as(tag).to_string().trim().to_string();
+
+        match tag {
+            exif::Tag::DateTimeOriginal | exif::Tag::DateTimeDigitized => {
+                if let Ok(ts) = NaiveDateTime::parse_from_str(&value_str, "%Y:%m:%d %H:%M:%S") {
+                    if metadata.exif_timestamp.is_none() || tag == exif::Tag::DateTimeOriginal {
+                        metadata.exif_timestamp = Some(ts);
+                    }
+                }
+            }
+            exif::Tag::Model => {
+                if !value_str.is_empty() {
+                    metadata.camera_model = Some(value_str);
+                }
+            }
+            exif::Tag::Make => {
+                if !value_str.is_empty() {
+                    metadata.camera_make = Some(value_str);
+                }
+            }
+            _ => {}
+        }
+    }
 }
