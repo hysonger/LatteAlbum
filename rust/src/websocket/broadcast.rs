@@ -2,6 +2,7 @@ use tokio::sync::broadcast;
 
 /// Scan progress message
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgressMessage {
     pub scanning: bool,
     pub phase: Option<String>,
