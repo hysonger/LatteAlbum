@@ -177,7 +177,7 @@
     >
       <!-- 阶段信息 -->
       <div class="phase-info">
-        <span class="phase-text">{{ scanProgressData?.phaseMessage || '初始化中...' }}</span>
+        <span class="phase-text">{{ scanProgressData ? getPhaseMessage(scanProgressData) : '初始化中...' }}</span>
       </div>
 
       <!-- 进度条 -->
@@ -232,7 +232,7 @@ import DateNavigator from '@/components/DateNavigator.vue'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import type { MediaFile } from '@/types'
 import { systemApi } from '@/services/api'
-import { scanProgressWs, type ScanProgressMessage } from '@/services/websocket'
+import { scanProgressWs, getPhaseMessage, type ScanProgressMessage } from '@/services/websocket'
 
 const galleryStore = useGalleryStore()
 
@@ -282,7 +282,6 @@ const refreshStatus = ref<'default' | 'refreshing' | 'success' | 'error'>('defau
 const scanProgressData = ref<{
   scanning: boolean
   phase?: string
-  phaseMessage?: string
   totalFiles: number
   successCount: number
   failureCount: number
@@ -382,7 +381,6 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       scanProgressData.value = {
         scanning: true,
         phase: progress.phase,
-        phaseMessage: progress.phaseMessage,
         totalFiles: progress.totalFiles || 0,
         successCount: 0,
         failureCount: 0,
@@ -397,7 +395,6 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       scanProgressData.value = {
         scanning: true,
         phase: progress.phase,
-        phaseMessage: progress.phaseMessage,
         totalFiles: progress.totalFiles,
         successCount: progress.successCount,
         failureCount: progress.failureCount,
@@ -413,7 +410,6 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       scanProgressData.value = {
         scanning: false,
         phase: 'completed',
-        phaseMessage: '扫描完成',
         totalFiles: progress.totalFiles,
         successCount: progress.successCount,
         failureCount: progress.failureCount,
@@ -560,8 +556,7 @@ onMounted(async () => {
           if (progressResponse.data.scanning) {
             scanProgressData.value = {
               scanning: true,
-              phase: 'processing',
-              phaseMessage: '正在恢复扫描进度...',
+              phase: progressResponse.data.phase || 'processing',
               totalFiles: progressResponse.data.totalFiles || 0,
               successCount: progressResponse.data.successCount || 0,
               failureCount: progressResponse.data.failureCount || 0,

@@ -137,7 +137,6 @@ impl ScanStateManager {
                         let msg = ScanProgressMessage {
                             scanning: current_state.scanning,
                             phase: Some(phase_str),
-                            phase_message: Some(current_state.phase_message.clone()),
                             total_files: current_state.total_files,
                             success_count: current_state.success_count,
                             failure_count: current_state.failure_count,

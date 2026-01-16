@@ -11,17 +11,18 @@ pub struct RescanResponse {
 
 /// Response for scan progress
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgressResponse {
     pub scanning: bool,
+    pub phase: Option<String>,
     pub total_files: u64,
     pub success_count: u64,
     pub failure_count: u64,
     pub progress_percentage: String,
-    pub phase: Option<String>,
-    pub phase_message: Option<String>,
     pub files_to_add: u64,
     pub files_to_update: u64,
     pub files_to_delete: u64,
+    pub start_time: Option<String>,
 }
 
 /// Response for cancel operation
@@ -67,15 +68,15 @@ pub async fn get_scan_progress(State(state): State<AppState>) -> impl IntoRespon
 
     Json(ScanProgressResponse {
         scanning: progress.scanning,
+        phase: progress.phase,
         total_files: progress.total_files,
         success_count: progress.success_count,
         failure_count: progress.failure_count,
         progress_percentage: progress.progress_percentage,
-        phase: progress.phase.clone(),
-        phase_message: progress.phase_message.clone(),
         files_to_add: progress.files_to_add,
         files_to_update: progress.files_to_update,
         files_to_delete: progress.files_to_delete,
+        start_time: progress.start_time,
     })
 }
 

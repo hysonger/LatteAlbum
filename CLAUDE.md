@@ -83,7 +83,7 @@ rust/src/
 ├── websocket/           # WebSocket handlers for scan progress
 │   ├── broadcast.rs     # ScanProgressBroadcaster for WebSocket broadcasting
 │   ├── handler.rs       # WebSocket connection handler
-│   ├── progress.rs      # Legacy progress tracker (unused)
+│   ├── progress.rs      # Legacy progress tracker (deprecated, not used)
 │   └── scan_state.rs    # ScanStateManager - global scan state management
 └── utils/               # Helper functions
 ```
@@ -122,7 +122,7 @@ Processors are registered in `app.rs` via `ProcessorRegistry`. Higher priority m
 **System Operations**:
 - `POST /api/system/rescan` - Trigger directory rescan
 - `GET /api/system/status` - System status
-- `GET /api/system/scan/progress` - Scan progress (HTTP fallback)
+- `GET /api/system/scan/progress` - Scan progress (HTTP fallback, returns `phase` not `phaseMessage`)
 - `WS /ws/scan` - WebSocket for real-time scan progress
 
 ### Frontend Structure
@@ -264,16 +264,18 @@ pub struct ScanStateManager {
 **Key methods** (`scan_service.rs` calls these methods):
 | Method | Purpose |
 |--------|---------|
-| `set_phase(phase, message)` | Update current phase and status message |
+| `set_phase(phase, message)` | Update current phase (message stored but not sent to frontend) |
 | `set_total(total)` | Set total files to process |
 | `set_file_counts(add, update, delete)` | Set file counts for add/update/delete |
 | `started()` | Mark scan as started, set start_time |
 | `increment_success()` | Increment success count |
 | `increment_failure()` | Increment failure count |
 | `completed()` | Mark scan as completed |
-| `error(message)` | Mark scan as error |
+| `error(message)` | Mark scan as error (message not sent to frontend) |
 | `cancelled()` | Mark scan as cancelled |
 | `get_state()` | Get current state (for HTTP fallback) |
+
+**Note**: The `message` parameter in `set_phase()` and `error()` is stored in `ScanState.phase_message` but is NOT sent to the frontend. The frontend generates Chinese display text locally.
 
 **Message Flow**:
 ```
@@ -309,21 +311,24 @@ scan_service (business logic)
 
 **Message Structure** (`websocket/broadcast.rs`):
 ```rust
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgressMessage {
     pub scanning: bool,
-    pub phase: Option<String>,              // collecting, counting, processing, deleting, completed
-    pub phase_message: Option<String>,      // Human-readable status message
-    pub total_files: u64,                   // Total files to process
-    pub success_count: u64,                 // Successfully processed
-    pub failure_count: u64,                 // Failed to process
+    pub phase: Option<String>,              // collecting, counting, processing, writing, deleting, completed
+    // phase_message 已移除，由前端根据 phase 值生成中文文本
+    pub total_files: u64,
+    pub success_count: u64,
+    pub failure_count: u64,
     pub progress_percentage: String,        // e.g., "45.50"
     pub status: String,                     // started, progress, completed, error, cancelled
-    pub files_to_add: u64,                  // New files detected
-    pub files_to_update: u64,               // Files modified since last scan
-    pub files_to_delete: u64,               // Files no longer exist
+    pub files_to_add: u64,
+    pub files_to_update: u64,
+    pub files_to_delete: u64,
     pub start_time: Option<String>,         // ISO 8601 timestamp
 }
 ```
+
+**JSON Field Names**: All fields use camelCase (e.g., `totalFiles`, `successCount`, `progressPercentage`) due to `#[serde(rename_all = "camelCase")]`.
 
 **Broadcast Methods** (`websocket/scan_state.rs` handles all broadcasts):
 
@@ -340,6 +345,58 @@ The worker task constructs `ScanProgressMessage` from current state and sends vi
 - **Protocol**: Native WebSocket (not STOMP/SockJS like Java version)
 - **Client**: `frontend/src/services/websocket.ts` - `ScanProgressWebSocketService` class
 - **Reconnect**: Automatic reconnection every 5 seconds if connection lost
+
+### Frontend Chinese Progress Text
+
+**The backend no longer sends `phase_message`** - The frontend generates Chinese display text locally based on the `phase` value.
+
+**Phase Label Mapping** (`frontend/src/services/websocket.ts`):
+```typescript
+export const PHASE_LABELS: Record<string, string> = {
+  idle: '空闲',
+  collecting: '收集中',
+  counting: '检查中',
+  processing: '处理中',
+  writing: '保存中',
+  deleting: '清理中',
+  completed: '完成',
+  error: '错误',
+  cancelled: '已取消',
+}
+```
+
+**Chinese Message Generator** (`frontend/src/services/websocket.ts`):
+```typescript
+export function getPhaseMessage(progress: Partial<ScanProgressMessage>): string {
+  const phase = progress.phase?.toLowerCase()
+
+  if (!phase || phase === 'idle') return '就绪'
+  if (progress.status === 'error') return '扫描出错'
+  if (progress.status === 'cancelled') return '扫描已取消'
+  if (progress.status === 'completed') return '扫描完成'
+
+  // Processing: show progress info
+  const processed = (progress.successCount || 0) + (progress.failureCount || 0)
+  const total = progress.totalFiles || 0
+  if (total > 0) {
+    return `${PHASE_LABELS[phase] || phase} (${processed}/${total}, ${progress.progressPercentage}%)`
+  }
+  return PHASE_LABELS[phase] || phase
+}
+```
+
+**Display Example**:
+| Phase | Chinese Display |
+|-------|-----------------|
+| idle | 就绪 |
+| collecting | 收集中 (120/318, 37.73%) |
+| counting | 检查中 |
+| processing | 处理中 (50/302, 16.56%) |
+| writing | 保存中 |
+| deleting | 清理中 |
+| completed | 扫描完成 |
+| error | 扫描出错 |
+| cancelled | 扫描已取消 |
 
 ### Progress Update Frequency
 

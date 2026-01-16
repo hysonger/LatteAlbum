@@ -101,12 +101,12 @@ export const systemApi = {
   getScanProgress: () => {
     return apiClient.get<{
       scanning: boolean
+      phase?: string
       totalFiles: number
       successCount: number
       failureCount: number
       progressPercentage: string
-      startTime: string
-      message?: string
+      startTime?: string
       filesToAdd: number
       filesToUpdate: number
       filesToDelete: number

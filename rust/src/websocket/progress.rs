@@ -74,7 +74,6 @@ impl ScanProgressTracker {
                         scanning: true,
                         status: "progress".to_string(),
                         phase: Some(phase),
-                        phase_message: Some(phase_message),
                         total_files: total,
                         success_count: success,
                         failure_count: failure,

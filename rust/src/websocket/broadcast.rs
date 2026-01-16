@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 pub struct ScanProgressMessage {
     pub scanning: bool,
     pub phase: Option<String>,
-    pub phase_message: Option<String>,
+    // phase_message 字段已移除，由前端根据 phase 值显示中文文本
     pub total_files: u64,
     pub success_count: u64,
     pub failure_count: u64,
@@ -23,7 +23,6 @@ impl Default for ScanProgressMessage {
         Self {
             scanning: false,
             phase: None,
-            phase_message: None,
             total_files: 0,
             success_count: 0,
             failure_count: 0,
@@ -60,7 +59,7 @@ impl ScanProgressBroadcaster {
     }
 
     /// Send scan started message
-    /// phase and phase_message should come from the current phase (e.g., "processing")
+    /// phase should be the current phase (e.g., "processing")
     pub async fn send_started(
         &self,
         files_to_add: u64,
@@ -68,7 +67,6 @@ impl ScanProgressBroadcaster {
         files_to_delete: u64,
         total_files: u64,
         phase: &str,
-        phase_message: &str,
     ) {
         let start_time = chrono::Utc::now().to_rfc3339();
 
@@ -81,7 +79,6 @@ impl ScanProgressBroadcaster {
             total_files,
             start_time: Some(start_time),
             phase: Some(phase.to_string()),
-            phase_message: Some(phase_message.to_string()),
             ..Default::default()
         };
         let _ = self.tx.send(msg);
@@ -106,11 +103,11 @@ impl ScanProgressBroadcaster {
     }
 
     /// Send error message
-    pub async fn send_error(&self, message: &str) {
+    pub async fn send_error(&self, _message: &str) {
         let mut msg = self.get_current_message().await;
         msg.scanning = false;
         msg.status = "error".to_string();
-        msg.phase_message = Some(message.to_string());
+        // phase_message 已移除，由前端显示中文错误信息
         let _ = self.tx.send(msg);
     }
 
@@ -122,19 +119,17 @@ impl ScanProgressBroadcaster {
     }
 
     /// Update phase information
-    pub async fn update_phase(&self, phase: &str, message: &str) {
+    pub async fn update_phase(&self, phase: &str) {
         let mut msg = self.get_current_message().await;
         msg.phase = Some(phase.to_string());
-        msg.phase_message = Some(message.to_string());
         msg.scanning = true;
         let _ = self.tx.send(msg);
     }
 
     /// Update phase information with total files
-    pub async fn update_phase_with_total(&self, phase: &str, message: &str, total_files: u64) {
+    pub async fn update_phase_with_total(&self, phase: &str, total_files: u64) {
         let mut msg = self.get_current_message().await;
         msg.phase = Some(phase.to_string());
-        msg.phase_message = Some(message.to_string());
         msg.scanning = true;
         msg.total_files = total_files;
         let _ = self.tx.send(msg);
