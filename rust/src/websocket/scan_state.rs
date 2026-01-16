@@ -28,7 +28,6 @@ impl Default for ScanPhase {
 #[derive(Debug, Clone, Default)]
 pub struct ScanState {
     pub phase: ScanPhase,
-    pub phase_message: String,
     pub scanning: bool,
     pub total_files: u64,
     pub success_count: u64,
@@ -42,14 +41,14 @@ pub struct ScanState {
 /// 进度更新消息（业务逻辑发送的消息）
 #[derive(Debug)]
 pub enum ProgressUpdate {
-    SetPhase(ScanPhase, String),
+    SetPhase(ScanPhase),
     SetTotal(u64),
     IncrementSuccess,
     IncrementFailure,
     SetFileCounts(u64, u64, u64), // add, update, delete
     Started,
     Completed,
-    Error(String),
+    Error,
     Cancelled,
 }
 
@@ -77,9 +76,8 @@ impl ScanStateManager {
                     let mut current_state = worker_state.write().unwrap();
 
                     match update {
-                        ProgressUpdate::SetPhase(ref phase, ref message) => {
+                        ProgressUpdate::SetPhase(ref phase) => {
                             current_state.phase = phase.clone();
-                            current_state.phase_message = message.clone();
                         }
                         ProgressUpdate::SetTotal(total) => {
                             current_state.total_files = total;
@@ -98,15 +96,16 @@ impl ScanStateManager {
                         ProgressUpdate::Started => {
                             current_state.scanning = true;
                             current_state.start_time = Some(chrono::Utc::now().to_rfc3339());
+                            current_state.success_count = 0;
+                            current_state.failure_count = 0;
                         }
                         ProgressUpdate::Completed => {
                             current_state.scanning = false;
                             current_state.phase = ScanPhase::Completed;
                         }
-                        ProgressUpdate::Error(ref msg) => {
+                        ProgressUpdate::Error => {
                             current_state.scanning = false;
                             current_state.phase = ScanPhase::Error;
-                            current_state.phase_message = msg.clone();
                         }
                         ProgressUpdate::Cancelled => {
                             current_state.scanning = false;
@@ -125,10 +124,10 @@ impl ScanStateManager {
                     // 每 10 个文件发送一次进度消息，或在阶段变更/完成时发送
                     let should_send = matches!(
                         update,
-                        ProgressUpdate::SetPhase(_, _)
+                        ProgressUpdate::SetPhase(_)
                             | ProgressUpdate::Started
                             | ProgressUpdate::Completed
-                            | ProgressUpdate::Error(_)
+                            | ProgressUpdate::Error
                             | ProgressUpdate::Cancelled
                     ) || processed.saturating_sub(last_progress_reported) >= 10;
 
@@ -174,8 +173,8 @@ impl ScanStateManager {
     }
 
     /// 业务逻辑调用的接口
-    pub fn set_phase(&self, phase: ScanPhase, message: &str) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::SetPhase(phase, message.to_string()));
+    pub fn set_phase(&self, phase: ScanPhase) {
+        let _ = self.progress_sender.try_send(ProgressUpdate::SetPhase(phase));
     }
 
     pub fn set_total(&self, total: u64) {
@@ -202,8 +201,8 @@ impl ScanStateManager {
         let _ = self.progress_sender.try_send(ProgressUpdate::Completed);
     }
 
-    pub fn error(&self, message: &str) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::Error(message.to_string()));
+    pub fn error(&self) {
+        let _ = self.progress_sender.try_send(ProgressUpdate::Error);
     }
 
     pub fn cancelled(&self) {

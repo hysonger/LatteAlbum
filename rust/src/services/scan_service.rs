@@ -14,7 +14,6 @@ use tokio::sync::Semaphore;
 pub struct ScanProgress {
     pub scanning: bool,
     pub phase: Option<String>,
-    pub phase_message: Option<String>,
     pub total_files: u64,
     pub success_count: u64,
     pub failure_count: u64,
@@ -115,12 +114,12 @@ impl ScanService {
 
         // Phase 1: Collect all file paths (fast, no DB access)
         let collect_start = Instant::now();
-        self.scan_state.set_phase(ScanPhase::Collecting, "Collecting files...");
+        self.scan_state.set_phase(ScanPhase::Collecting);
         let files = match self.collect_file_paths().await {
             Ok(files) => files,
             Err(e) => {
                 tracing::error!("Failed to collect files: {}", e);
-                self.scan_state.error("Failed to collect files");
+                self.scan_state.error();
                 return;
             }
         };
@@ -132,7 +131,7 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
-            self.scan_state.set_phase(ScanPhase::Completed, "No files found");
+            self.scan_state.set_phase(ScanPhase::Completed);
             self.scan_state.started();
             self.scan_state.completed();
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
@@ -141,7 +140,7 @@ impl ScanService {
 
         // Phase 2: Batch check database for existing files
         let count_start = Instant::now();
-        self.scan_state.set_phase(ScanPhase::Counting, "Checking database...");
+        self.scan_state.set_phase(ScanPhase::Counting);
         let (files_to_add, files_to_update, skip_list) = self.batch_check_exists(&files).await;
 
         // Count files to delete
@@ -161,10 +160,7 @@ impl ScanService {
 
         let processing_count = files_to_add + files_to_update;
         if processing_count > 0 {
-            let phase_message = format!(
-                "Processing {} files (skipping {} unchanged)...", processing_count, skip_list.len()
-            );
-            self.scan_state.set_phase(ScanPhase::Processing, &phase_message);
+            self.scan_state.set_phase(ScanPhase::Processing);
             self.scan_state.set_total(processing_count);
             self.scan_state.started();
 
@@ -187,15 +183,13 @@ impl ScanService {
                 results.len(), success_results, fail_results, process_duration);
 
             // Phase 4: Batch upsert results + update skip_list last_scanned
-            self.scan_state.set_phase(ScanPhase::Writing, "Saving to database...");
+            self.scan_state.set_phase(ScanPhase::Writing);
             self.batch_write_results_with_skip(results, &skip_list, total).await;
             let write_duration = process_start.elapsed();
             tracing::debug!("Phase 4 (writing): completed in {:?}", write_duration);
         } else {
             // All files unchanged - just update last_scanned for all
-            self.scan_state.set_phase(ScanPhase::Writing, &format!(
-                "Updating {} files...", skip_list.len()
-            ));
+            self.scan_state.set_phase(ScanPhase::Writing);
             self.scan_state.set_file_counts(0, 0, files_to_delete);
             self.scan_state.started();
 
@@ -206,7 +200,7 @@ impl ScanService {
         }
 
         // Phase 5: Clean up missing files
-        self.scan_state.set_phase(ScanPhase::Deleting, "Cleaning up...");
+        self.scan_state.set_phase(ScanPhase::Deleting);
         self.delete_missing(&files).await;
         tracing::debug!("Phase 5 (deleting): completed");
 
@@ -226,12 +220,12 @@ impl ScanService {
 
         // Phase 1: Collect all file paths
         let collect_start = Instant::now();
-        self.scan_state.set_phase(ScanPhase::Collecting, "Collecting files...");
+        self.scan_state.set_phase(ScanPhase::Collecting);
         let files = match self.collect_file_paths().await {
             Ok(files) => files,
             Err(e) => {
                 tracing::error!("Failed to collect files: {}", e);
-                self.scan_state.error("Failed to collect files");
+                self.scan_state.error();
                 return;
             }
         };
@@ -242,7 +236,7 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
-            self.scan_state.set_phase(ScanPhase::Completed, "No files found");
+            self.scan_state.set_phase(ScanPhase::Completed);
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
             return;
         }
@@ -257,20 +251,22 @@ impl ScanService {
         // Set file counts and prepare for processing
         self.scan_state.set_file_counts(counts.files_to_add, counts.files_to_update, counts.files_to_delete);
 
-        // Prepare phase message for processing
-        let phase_message = format!(
-            "Found {} to add, {} to update",
-            counts.files_to_add, counts.files_to_update
-        );
-
         // Update to processing phase and start
-        self.scan_state.set_phase(ScanPhase::Processing, &phase_message);
+        self.scan_state.set_phase(ScanPhase::Processing);
         self.scan_state.set_total(counts.files_to_add + counts.files_to_update);
         self.scan_state.started();
 
         // Phase 3: Process files serially
         let process_start = Instant::now();
-        self.process_serial(&files).await;
+        let processing_count = counts.files_to_add + counts.files_to_update;
+        if processing_count > 0 {
+            // Process files that need metadata extraction
+            self.process_serial(&files).await;
+        } else {
+            // All files unchanged - just touch them in batch
+            let repo = MediaFileRepository::new(&self.db);
+            let _ = repo.batch_touch(&files).await;
+        }
         let process_duration = process_start.elapsed();
         tracing::debug!("Phase 3 (processing): completed in {:?}", process_duration);
 

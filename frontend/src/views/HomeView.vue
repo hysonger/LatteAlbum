@@ -97,8 +97,65 @@
           <i v-if="!isRefreshing && refreshStatus === 'success'" class="fas fa-check"></i>
           <i v-if="!isRefreshing && refreshStatus === 'error'" class="fas fa-times"></i>
           <i v-if="!isRefreshing && refreshStatus === 'default'" class="fas fa-sync-alt"></i>
+
+          <!-- 扫描进度气泡 - 电脑端 -->
+          <transition name="fade">
+            <div v-if="showScanPopup && scanProgressData && !isMobile" class="scan-progress-popup" ref="scanPopupRef">
+              <div class="popup-header">
+                <span class="popup-title">扫描进度</span>
+                <i class="fas fa-times close-icon" @click.stop="showScanPopup = false"></i>
+              </div>
+              <!-- 阶段信息 -->
+              <div class="phase-info">
+                <span class="phase-text">{{ getPhaseMessage(scanProgressData) }}</span>
+              </div>
+              <!-- 进度条 -->
+              <el-progress
+                :percentage="Math.min(parseFloat(scanProgressData.progressPercentage || '0'), 100)"
+                :stroke-width="8"
+              />
+              <!-- 统计信息 -->
+              <div class="scan-stats">
+                <div class="stat-item">
+                  <span class="stat-label">新增</span>
+                  <span class="stat-value add">{{ scanProgressData.filesToAdd || 0 }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">修改</span>
+                  <span class="stat-value update">{{ scanProgressData.filesToUpdate || 0 }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">删除</span>
+                  <span class="stat-value delete">{{ scanProgressData.filesToDelete || 0 }}</span>
+                </div>
+              </div>
+              <!-- 处理进度 -->
+              <div class="processing-info">
+                <span>已处理 {{ scanProgressData.successCount || 0 }} / {{ scanProgressData.totalFiles || 0 }}</span>
+                <span v-if="(scanProgressData.failureCount || 0) > 0" class="error">失败 {{ scanProgressData.failureCount }}</span>
+              </div>
+              <!-- 底部按钮 -->
+              <div class="popup-actions">
+                <el-button
+                  v-if="scanProgressData.scanning"
+                  type="danger"
+                  size="small"
+                  @click.stop="handleStopScan"
+                >
+                  停止扫描
+                </el-button>
+                <el-button
+                  v-else
+                  size="small"
+                  @click.stop="showScanPopup = false"
+                >
+                  关闭
+                </el-button>
+              </div>
+            </div>
+          </transition>
         </div>
-        
+
         <!-- 手机端更多按钮 -->
         <div class="more-button" @click="toggleMobileMenu" v-if="isMobile">
           <i class="fas fa-ellipsis-h"></i>
@@ -156,8 +213,66 @@
           </div>
         </div>
       </transition>
+
+      <!-- 扫描进度底部弹窗 - 移动端 -->
+      <transition name="slide-up">
+        <div v-if="showScanPopup && isMobile" class="scan-progress-mobile" @click.self="showScanPopup = false">
+          <div class="mobile-popup-content">
+            <div class="popup-header">
+              <span class="popup-title">扫描进度</span>
+              <i class="fas fa-times close-icon" @click="showScanPopup = false"></i>
+            </div>
+            <!-- 阶段信息 -->
+            <div class="phase-info">
+              <span class="phase-text">{{ scanProgressData ? getPhaseMessage(scanProgressData) : '初始化中...' }}</span>
+            </div>
+            <!-- 进度条 -->
+            <el-progress
+              v-if="scanProgressData"
+              :percentage="Math.min(parseFloat(scanProgressData.progressPercentage || '0'), 100)"
+              :stroke-width="10"
+            />
+            <!-- 统计信息 -->
+            <div class="scan-stats">
+              <div class="stat-item">
+                <span class="stat-label">新增</span>
+                <span class="stat-value add">{{ scanProgressData?.filesToAdd || 0 }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">修改</span>
+                <span class="stat-value update">{{ scanProgressData?.filesToUpdate || 0 }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">删除</span>
+                <span class="stat-value delete">{{ scanProgressData?.filesToDelete || 0 }}</span>
+              </div>
+            </div>
+            <!-- 处理进度 -->
+            <div class="processing-info">
+              <span>已处理 {{ scanProgressData?.successCount || 0 }} / {{ scanProgressData?.totalFiles || 0 }}</span>
+              <span v-if="scanProgressData && (scanProgressData.failureCount || 0) > 0" class="error">失败 {{ scanProgressData.failureCount }}</span>
+            </div>
+            <!-- 底部按钮 -->
+            <div class="popup-actions">
+              <el-button
+                v-if="scanProgressData?.scanning"
+                type="danger"
+                @click="handleStopScan"
+              >
+                停止扫描
+              </el-button>
+              <el-button
+                v-else
+                @click="showScanPopup = false"
+              >
+                关闭
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </footer>
-    
+
     <PhotoViewer
       v-if="showViewer && currentFile"
       :file="currentFile"
@@ -166,60 +281,6 @@
       @change="handleChangeFile"
     />
 
-    <!-- 扫描进度对话框 -->
-    <el-dialog
-      v-model="showScanDialog"
-      title="扫描进度"
-      :close-on-click-modal="false"
-      width="420px"
-      class="scan-progress-dialog"
-      :append-to-body="true"
-    >
-      <!-- 阶段信息 -->
-      <div class="phase-info">
-        <span class="phase-text">{{ scanProgressData ? getPhaseMessage(scanProgressData) : '初始化中...' }}</span>
-      </div>
-
-      <!-- 进度条 -->
-      <el-progress
-        :percentage="parseFloat(scanProgressData?.progressPercentage || '0')"
-        :stroke-width="10"
-      />
-
-      <!-- 详细统计 -->
-      <div class="scan-stats">
-        <div class="stat-item">
-          <span class="stat-label">新增</span>
-          <span class="stat-value add">{{ scanProgressData?.filesToAdd || 0 }}</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">修改</span>
-          <span class="stat-value update">{{ scanProgressData?.filesToUpdate || 0 }}</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">删除</span>
-          <span class="stat-value delete">{{ scanProgressData?.filesToDelete || 0 }}</span>
-        </div>
-      </div>
-
-      <!-- 处理进度 -->
-      <div class="processing-info">
-        <div class="info-row">
-          <span>已处理</span>
-          <span>{{ scanProgressData?.successCount || 0 }} / {{ scanProgressData?.totalFiles || 0 }}</span>
-        </div>
-        <div class="info-row" v-if="scanProgressData && (scanProgressData.failureCount || 0) > 0">
-          <span>失败</span>
-          <span class="error">{{ scanProgressData.failureCount }}</span>
-        </div>
-      </div>
-
-      <!-- 底部按钮 -->
-      <template #footer>
-        <el-button @click="showScanDialog = false">隐藏</el-button>
-        <el-button type="danger" @click="handleStopScan">停止扫描</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -291,8 +352,9 @@ const scanProgressData = ref<{
   filesToDelete?: number
 } | null>(null)
 
-// 扫描进度对话框
-const showScanDialog = ref(false)
+// 扫描进度弹窗（气泡/底部弹窗）
+const showScanPopup = ref(false)
+const scanPopupRef = ref<HTMLElement | null>(null)
 
 // 其他状态
 const showViewer = ref(false)
@@ -314,18 +376,6 @@ const toggleMobileMenu = () => {
   showMobileMenu.value = !showMobileMenu.value
   // 关闭排序菜单
   showSortMenu.value = false
-}
-
-// 点击外部关闭菜单
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  const mainContent = document.querySelector('.main-content')
-  
-  // 只在点击主内容区域时关闭菜单
-  if (mainContent && mainContent.contains(target)) {
-    showMobileMenu.value = false
-    showSortMenu.value = false
-  }
 }
 
 // 获取排序标签
@@ -406,7 +456,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       break
 
     case 'completed':
-      showScanDialog.value = false
+      showScanPopup.value = false
       scanProgressData.value = {
         scanning: false,
         phase: 'completed',
@@ -451,16 +501,18 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
 
 // 刷新功能
 const handleRefresh = async () => {
-  // 如果正在扫描，打开进度对话框
+  // 如果正在扫描，切换显示进度弹窗
   if (isRefreshing.value) {
-    showScanDialog.value = true
+    showScanPopup.value = !showScanPopup.value
     return
   }
 
   try {
+    // 重置扫描状态，确保每次扫描都从干净的状态开始
     isRefreshing.value = true
     refreshStatus.value = 'refreshing'
     scanProgressData.value = null
+    showScanPopup.value = true
 
     // 调用重新扫描接口
     await systemApi.rescan()
@@ -469,11 +521,29 @@ const handleRefresh = async () => {
     console.error('刷新失败:', error)
     isRefreshing.value = false
     refreshStatus.value = 'error'
+    showScanPopup.value = false
 
     // 3秒后恢复默认状态
     setTimeout(() => {
       refreshStatus.value = 'default'
     }, 3000)
+  }
+}
+
+// 点击外部关闭弹窗和菜单
+const handleClickOutside = (event: MouseEvent) => {
+  const target = event.target as HTMLElement
+  const mainContent = document.querySelector('.main-content')
+
+  // 点击主内容区域时关闭菜单
+  if (mainContent && mainContent.contains(target)) {
+    showMobileMenu.value = false
+    showSortMenu.value = false
+  }
+
+  // 扫描进度弹窗点击外部关闭（仅桌面端）
+  if (showScanPopup.value && scanPopupRef.value && !isMobile.value && !scanPopupRef.value.contains(event.target as Node)) {
+    showScanPopup.value = false
   }
 }
 
@@ -490,7 +560,7 @@ const handleStopScan = () => {
   ).then(async () => {
     try {
       await systemApi.cancelScan()
-      showScanDialog.value = false
+      showScanPopup.value = false
     } catch (error) {
       console.error('停止扫描失败:', error)
     }
@@ -1220,5 +1290,238 @@ onUnmounted(() => {
   .scan-progress-dialog .phase-text {
     font-size: 14px;
   }
+}
+
+/* 扫描进度气泡样式 - 电脑端 */
+.scan-progress-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  width: 280px;
+  background: white;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  z-index: 200;
+}
+
+.scan-progress-popup .popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.scan-progress-popup .popup-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.scan-progress-popup .close-icon {
+  cursor: pointer;
+  color: #909399;
+  padding: 4px;
+  font-size: 14px;
+}
+
+.scan-progress-popup .close-icon:hover {
+  color: #409eff;
+}
+
+.scan-progress-popup .phase-info {
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.scan-progress-popup .phase-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #409eff;
+}
+
+.scan-progress-popup .scan-stats {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 12px 0;
+  padding: 8px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.scan-progress-popup .stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.scan-progress-popup .stat-label {
+  font-size: 11px;
+  color: #909399;
+}
+
+.scan-progress-popup .stat-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.scan-progress-popup .stat-value.add {
+  color: #67c23a;
+}
+
+.scan-progress-popup .stat-value.update {
+  color: #409eff;
+}
+
+.scan-progress-popup .stat-value.delete {
+  color: #f56c6c;
+}
+
+.scan-progress-popup .processing-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #606266;
+  margin-bottom: 8px;
+}
+
+.scan-progress-popup .processing-info .error {
+  color: #f56c6c;
+  font-weight: 500;
+}
+
+.scan-progress-popup .popup-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* 扫描进度底部弹窗样式 - 移动端 */
+.scan-progress-mobile {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.scan-progress-mobile .mobile-popup-content {
+  width: 100%;
+  max-width: 1200px;
+  background: white;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
+  padding: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.scan-progress-mobile .popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.scan-progress-mobile .popup-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.scan-progress-mobile .close-icon {
+  cursor: pointer;
+  color: #909399;
+  padding: 6px;
+  font-size: 16px;
+}
+
+.scan-progress-mobile .close-icon:hover {
+  color: #409eff;
+}
+
+.scan-progress-mobile .phase-info {
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.scan-progress-mobile .phase-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #409eff;
+}
+
+.scan-progress-mobile .scan-stats {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin: 16px 0;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.scan-progress-mobile .stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.scan-progress-mobile .stat-label {
+  font-size: 12px;
+  color: #909399;
+}
+
+.scan-progress-mobile .stat-value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.scan-progress-mobile .stat-value.add {
+  color: #67c23a;
+}
+
+.scan-progress-mobile .stat-value.update {
+  color: #409eff;
+}
+
+.scan-progress-mobile .stat-value.delete {
+  color: #f56c6c;
+}
+
+.scan-progress-mobile .processing-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #606266;
+  padding: 8px 0;
+}
+
+.scan-progress-mobile .processing-info .error {
+  color: #f56c6c;
+  font-weight: 500;
+}
+
+.scan-progress-mobile .popup-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.scan-progress-mobile .popup-actions .el-button {
+  flex: 1;
+  max-width: 200px;
 }
 </style>

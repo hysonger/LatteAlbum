@@ -14,7 +14,6 @@ pub struct ScanProgressTracker {
 struct ScanProgressState {
     // 使用 String 而非 Option<String>，确保永不为 None
     phase: Mutex<String>,
-    phase_message: Mutex<String>,
     total: AtomicU64,
     success_count: AtomicU64,
     failure_count: AtomicU64,
@@ -31,7 +30,6 @@ impl ScanProgressTracker {
     pub fn new(tx: broadcast::Sender<ScanProgressMessage>) -> Self {
         let state = Arc::new(ScanProgressState {
             phase: Mutex::new(String::new()),
-            phase_message: Mutex::new(String::new()),
             total: AtomicU64::new(0),
             success_count: AtomicU64::new(0),
             failure_count: AtomicU64::new(0),
@@ -56,7 +54,6 @@ impl ScanProgressTracker {
 
                 // 获取当前状态（包含 phase）
                 let phase = worker_state.phase.lock().unwrap().clone();
-                let phase_message = worker_state.phase_message.lock().unwrap().clone();
                 let total = worker_state.total.load(Ordering::SeqCst);
                 let success = worker_state.success_count.load(Ordering::SeqCst);
                 let failure = worker_state.failure_count.load(Ordering::SeqCst);
@@ -96,11 +93,9 @@ impl ScanProgressTracker {
     }
 
     /// 设置当前阶段（必须调用，确保 phase 不为 None）
-    pub fn set_phase(&self, phase: &str, message: &str) {
+    pub fn set_phase(&self, phase: &str) {
         let mut p = self.state.phase.lock().unwrap();
-        let mut m = self.state.phase_message.lock().unwrap();
         *p = phase.to_string();
-        *m = message.to_string();
     }
 
     /// 设置总数
@@ -127,9 +122,7 @@ impl ScanProgressTracker {
     }
 
     /// 获取当前 phase（用于发送消息时）
-    pub fn get_phase_info(&self) -> (String, String) {
-        let phase = self.state.phase.lock().unwrap().clone();
-        let phase_message = self.state.phase_message.lock().unwrap().clone();
-        (phase, phase_message)
+    pub fn get_phase_info(&self) -> String {
+        self.state.phase.lock().unwrap().clone()
     }
 }

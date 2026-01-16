@@ -90,7 +90,7 @@ impl ScanProgressBroadcaster {
         let mut msg = self.get_current_message().await;
         msg.scanning = false;
         msg.status = "completed".to_string();
-        // Keep the phase and phase_message from the current message
+        // Keep the phase from the current message
         let _ = self.tx.send(msg);
     }
 
@@ -103,11 +103,10 @@ impl ScanProgressBroadcaster {
     }
 
     /// Send error message
-    pub async fn send_error(&self, _message: &str) {
+    pub async fn send_error(&self) {
         let mut msg = self.get_current_message().await;
         msg.scanning = false;
         msg.status = "error".to_string();
-        // phase_message 已移除，由前端显示中文错误信息
         let _ = self.tx.send(msg);
     }
 
