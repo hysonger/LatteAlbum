@@ -40,12 +40,17 @@ const currentIndex = computed(() => {
   return datesWithPhotos.value.findIndex(d => d.date === selectedDate.value)
 })
 
+// 日期按降序排列：dates[0] = 最新日期, dates[length-1] = 最旧日期
+// 左箭头：翻到更旧的日期（数组索引递增方向）
+// 右箭头：翻到更新的日期（数组索引递减方向）
 const canNavigatePrev = computed(() => {
-  return currentIndex.value > 0
+  // 可以向左翻（翻到更旧的日期）当还有更大的索引时
+  return currentIndex.value >= 0 && currentIndex.value < datesWithPhotos.value.length - 1
 })
 
 const canNavigateNext = computed(() => {
-  return currentIndex.value >= 0 && currentIndex.value < datesWithPhotos.value.length - 1
+  // 可以向右翻（翻到更新的日期）当还有更小的索引时
+  return currentIndex.value > 0
 })
 
 const disabledDate = (date: Date) => {

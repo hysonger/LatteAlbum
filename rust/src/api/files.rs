@@ -9,9 +9,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// Query parameters for file list
 #[derive(Debug, Deserialize)]
@@ -123,6 +121,10 @@ pub async fn get_thumbnail(
     Path(id): Path<String>,
     Query(size): Query<ThumbnailSize>,
 ) -> impl IntoResponse {
+    use axum::body::Body;
+    use axum::response::Response;
+    use std::fmt::Write;
+
     let thumbnail_size = state
         .config
         .get_thumbnail_size(size.size.as_deref().unwrap_or("medium"));
@@ -132,12 +134,26 @@ pub async fn get_thumbnail(
         .get_thumbnail(&id, thumbnail_size)
         .await
     {
-        Ok(Some(data)) => (
-            axum::http::StatusCode::OK,
-            [("Content-Type", "image/jpeg")],
-            data,
-        )
-            .into_response(),
+        Ok(Some(data)) => {
+            // Generate ETag from file ID and size
+            let mut etag = String::with_capacity(64);
+            write!(&mut etag, "\"{}-{}}}\"", id, size.size.as_deref().unwrap_or("medium")).unwrap();
+
+            let mut response = Response::new(Body::from(data));
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("image/jpeg"),
+            );
+            response.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("public, max-age=86400"),
+            );
+            response.headers_mut().insert(
+                axum::http::header::ETAG,
+                axum::http::HeaderValue::from_str(&etag).unwrap(),
+            );
+            response
+        }
         Ok(None) => (
             axum::http::StatusCode::NOT_FOUND,
             "Thumbnail not found",

@@ -1,11 +1,10 @@
 use crate::{
     api::AppState,
     app::State,
-    db::{Directory, DirectoryRepository},
+    db::DirectoryRepository,
 };
 use axum::{debug_handler, extract::Query, response::IntoResponse, Json};
 use serde::Deserialize;
-use std::sync::Arc;
 
 /// Query parameters for directory list
 #[derive(Debug, Deserialize)]

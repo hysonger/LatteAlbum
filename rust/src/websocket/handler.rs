@@ -43,7 +43,7 @@ pub async fn handle_websocket(ws: WebSocket, broadcaster: Arc<ScanProgressBroadc
                             }
                         }
                         Ok(Message::Ping(data)) => {
-                            let _ = sender.send(Message::Pong(data.into())).await;
+                            let _ = sender.send(Message::Pong(data)).await;
                         }
                         Ok(Message::Close(_)) => {
                             break;

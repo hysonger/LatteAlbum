@@ -128,6 +128,9 @@ const isLoading = ref(false)
 const isConverting = ref<boolean>(false)
 const videoError = ref<string | null>(null)
 
+// 用于防止竞态条件：跟踪当前加载的世代
+let loadGeneration = 0
+
 // 计算属性
 const isImage = computed(() => currentFile.value?.fileType === 'image')
 const isVideo = computed(() => currentFile.value?.fileType === 'video')
@@ -249,6 +252,9 @@ const downloadOriginal = async () => {
 const loadMedia = async () => {
   if (!currentFile.value) return
 
+  // 增加世代计数，用于防止竞态条件
+  const currentGeneration = ++loadGeneration
+
   try {
     if (isImage.value) {
       isLoading.value = true
@@ -270,23 +276,30 @@ const loadMedia = async () => {
           largeRequest.then(result => ({ result, isFull: false }))
         ])
 
+        // 检查世代是否匹配（可能被翻页中断）
+        if (currentGeneration !== loadGeneration) return
+
         if (winner.isFull) {
           // full 先返回，直接显示
           currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
-          thumbnailUrl.value = undefined
         } else {
-          // large 先返回，作为占位图显示
-          thumbnailUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
+          // large 先返回，直接作为占位图显示
+          currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
 
-          // 继续等待 full
+          // 继续等待 full，完成后替换
           const fullResult = await fullRequest
+
+          // 再次检查世代是否匹配
+          if (currentGeneration !== loadGeneration) return
+
           currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
         }
       } catch {
         // 如果 full 失败，尝试使用 large 作为备选
-        if (currentImageUrl.value === undefined) {
+        if (currentImageUrl.value === undefined && currentGeneration === loadGeneration) {
           try {
             const largeResult = await largeRequest
+            if (currentGeneration !== loadGeneration) return
             currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
           } catch (e) {
             console.error('加载媒体文件失败:', e)

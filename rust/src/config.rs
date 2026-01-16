@@ -31,6 +31,7 @@ pub struct Config {
 
     // Scan configuration
     pub scan_parallel: bool,
+    pub scan_concurrency: Option<usize>,
     pub scan_cron: String,
     pub scan_batch_size: usize,
 
@@ -60,6 +61,8 @@ impl Config {
         let thumbnail_quality = get_env_f32("LATTE_THUMBNAIL_QUALITY", 0.8)?;
 
         let scan_parallel = get_env_bool("LATTE_SCAN_PARALLEL", true)?;
+        let scan_concurrency = get_env_usize("LATTE_SCAN_CONCURRENCY", 0)?;
+        let scan_concurrency = if scan_concurrency == 0 { None } else { Some(scan_concurrency) };
         let scan_cron = get_env("LATTE_SCAN_CRON", "0 0 2 * * ?")?;
         let scan_batch_size = get_env_usize("LATTE_SCAN_BATCH_SIZE", 50)?;
 
@@ -79,6 +82,7 @@ impl Config {
             thumbnail_large,
             thumbnail_quality,
             scan_parallel,
+            scan_concurrency,
             scan_cron,
             scan_batch_size,
             ffmpeg_path,
@@ -112,7 +116,7 @@ fn get_env(key: &str, default: &str) -> Result<String, ConfigError> {
 
 fn get_env_path(key: &str, default: &str) -> Result<PathBuf, ConfigError> {
     let value = get_env(key, default)?;
-    Ok(PathBuf::from_str(&value).map_err(|e| ConfigError::InvalidValue(key.to_string(), e.to_string()))?)
+    PathBuf::from_str(&value).map_err(|e| ConfigError::InvalidValue(key.to_string(), e.to_string()))
 }
 
 fn get_env_u16(key: &str, default: u16) -> Result<u16, ConfigError> {
@@ -170,7 +174,7 @@ fn get_env_bool(key: &str, default: bool) -> Result<bool, ConfigError> {
     if value.is_empty() {
         return Ok(default);
     }
-    value.parse().map_or(Ok(default), |v| Ok(v))
+    value.parse().map_or(Ok(default), Ok)
 }
 
 #[cfg(test)]
@@ -195,6 +199,7 @@ mod tests {
             thumbnail_large: 900,
             thumbnail_quality: 0.8,
             scan_parallel: true,
+            scan_concurrency: None,
             scan_cron: "0 0 2 * * ?".to_string(),
             scan_batch_size: 50,
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
@@ -237,6 +242,7 @@ impl Default for Config {
             thumbnail_large: 900,
             thumbnail_quality: 0.8,
             scan_parallel: true,
+            scan_concurrency: None,
             scan_cron: "0 0 2 * * ?".to_string(),
             scan_batch_size: 50,
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),

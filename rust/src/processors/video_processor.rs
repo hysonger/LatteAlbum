@@ -80,7 +80,7 @@ impl MediaProcessor for VideoProcessor {
     async fn generate_thumbnail(
         &self,
         path: &Path,
-        target_width: u32,
+        _target_width: u32,
         _quality: f32,
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         #[cfg(feature = "video-processing")]

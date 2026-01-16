@@ -38,6 +38,8 @@ db_dir="$DEFAULT_DB_DIR"
 cache_dir="$DEFAULT_CACHE_DIR"
 static_dir="$DEFAULT_STATIC_DIR"
 
+export RUST_BACKTRACE=1
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--host)

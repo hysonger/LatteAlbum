@@ -12,6 +12,7 @@ export interface MediaFile {
   modifyTime: string
   cameraMake?: string
   cameraModel?: string
+  lensModel?: string
   exposureTime?: string
   aperture?: string
   iso?: number

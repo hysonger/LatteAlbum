@@ -1,3 +1,4 @@
+use crate::processors::image_processor::extract_exif;
 use crate::processors::processor_trait::{
     MediaMetadata, MediaProcessor, MediaType, ProcessingError,
 };
@@ -8,6 +9,12 @@ use std::path::Path;
 /// HEIF/HEIC image processor
 /// Uses libheif-rs for HEIC decoding
 pub struct HeifImageProcessor;
+
+impl Default for HeifImageProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl HeifImageProcessor {
     pub fn new() -> Self {
@@ -39,9 +46,9 @@ impl MediaProcessor for HeifImageProcessor {
         let mut metadata = MediaMetadata::default();
 
         // Use libheif-rs to read HEIC dimensions (format-specific)
-        let path = path.to_path_buf();
+        let path_buf = path.to_path_buf();
         let dimensions = tokio::task::spawn_blocking(move || {
-            let path_str = path.to_string_lossy();
+            let path_str = path_buf.to_string_lossy();
             let ctx = HeifContext::read_from_file(&path_str)
                 .map_err(|e| ProcessingError::Processing(e.to_string()))?;
             let handle = ctx.primary_image_handle()
@@ -54,6 +61,9 @@ impl MediaProcessor for HeifImageProcessor {
         metadata.width = Some(dimensions.0 as i32);
         metadata.height = Some(dimensions.1 as i32);
         metadata.mime_type = Some("image/heic".to_string());
+
+        // Extract EXIF metadata (supports HEIC via kamadak-exif)
+        extract_exif(path, &mut metadata);
 
         Ok(metadata)
     }
@@ -110,7 +120,7 @@ impl MediaProcessor for HeifImageProcessor {
             // Handle stride vs width difference (for memory alignment padding)
             let width = interleaved.width;
             let height = interleaved.height;
-            let stride = interleaved.stride as usize;
+            let stride = interleaved.stride;
             let data = &interleaved.data;
 
             // Create RgbaImage from raw data, handling stride padding if necessary
@@ -121,7 +131,7 @@ impl MediaProcessor for HeifImageProcessor {
                     .ok_or_else(|| ProcessingError::Processing("Failed to create image from HEIC data".to_string()))?
             } else {
                 // Data has padding, need to copy row by row
-                let mut rgb_data = Vec::with_capacity((width as usize * height as usize * 4) as usize);
+                let mut rgb_data = Vec::with_capacity(((width as usize * height as usize * 4)));
                 let bytes_per_row = width as usize * 4;
                 for row in 0..height as usize {
                     let row_offset = row * stride;

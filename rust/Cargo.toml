@@ -57,8 +57,9 @@ tokio-cron-scheduler = "0.12"
 
 # EXIF Support
 kamadak-exif = "0.6.1"
+little_exif = "0.6.23"
 
-libheif-rs = "2.5.2"
+libheif-rs = { version = "2.5.2", features = ["image"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

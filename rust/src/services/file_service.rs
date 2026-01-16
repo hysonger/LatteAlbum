@@ -17,7 +17,7 @@ impl FileService {
     }
 
     /// Get thumbnail for a file
-    /// For "full" size (target_width == 0), returns full-size transcoded image without caching
+    /// For "full" size (target_width == 0), returns full-size transcoded image with disk caching
     pub async fn get_thumbnail(
         &self,
         file_id: &str,
@@ -26,40 +26,43 @@ impl FileService {
         // Check if this is a full-size request
         let is_full_size = target_width == 0;
 
-        // For full-size requests, skip cache (images are too large)
-        // Also skip size_label calculation since we're not caching
-        if !is_full_size {
-            let size_label = match target_width {
-                w if w <= 300 => "small",
-                w if w <= 450 => "medium",
-                _ => "large",
-            };
-
-            if let Some(data) = self.cache.get_thumbnail(file_id, size_label).await {
-                return Ok(Some(data));
+        // Determine size label for caching
+        let size_label = if is_full_size {
+            "full".to_string()
+        } else {
+            match target_width {
+                w if w <= 300 => "small".to_string(),
+                w if w <= 450 => "medium".to_string(),
+                _ => "large".to_string(),
             }
+        };
+
+        // For all sizes including full, check disk cache first
+        if let Some(data) = self.cache.get_thumbnail(file_id, &size_label).await {
+            return Ok(Some(data));
         }
 
-        // Not in cache or full-size request, generate thumbnail
+        // Not in cache, generate thumbnail
         let repo = MediaFileRepository::new(&self.db);
 
         match repo.find_by_id(file_id).await {
             Ok(Some(file)) => {
                 let path = std::path::Path::new(&file.file_path);
                 if path.exists() {
+                    // For full-size JPEG requests, serve original file directly (no transcoding needed)
+                    if is_full_size && is_jpeg_file(&file.file_name) {
+                        if let Ok(data) = tokio::fs::read(path).await {
+                            let _ = self.cache.put_thumbnail(file_id, &size_label, &data).await;
+                            return Ok(Some(data));
+                        }
+                    }
+
                     // Find appropriate processor
                     if let Some(processor) = self.processors.find_processor(path) {
                         match processor.generate_thumbnail(path, target_width, 0.9).await {
                             Ok(Some(thumbnail_data)) => {
-                                // Cache the generated thumbnail (only for non-full sizes)
-                                if !is_full_size {
-                                    let size_label = match target_width {
-                                        w if w <= 300 => "small",
-                                        w if w <= 450 => "medium",
-                                        _ => "large",
-                                    };
-                                    let _ = self.cache.put_thumbnail(file_id, size_label, &thumbnail_data).await;
-                                }
+                                // Cache the generated thumbnail (all sizes including full)
+                                let _ = self.cache.put_thumbnail(file_id, &size_label, &thumbnail_data).await;
                                 return Ok(Some(thumbnail_data));
                             }
                             Ok(None) => {
@@ -85,7 +88,6 @@ impl FileService {
         }
 
         // Fallback: try to read original file as thumbnail for images
-        // Skip fallback for full-size requests (they should go through proper processing)
         if !is_full_size {
             self.generate_fallback_thumbnail(file_id).await
         } else {
@@ -100,21 +102,18 @@ impl FileService {
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
         let repo = MediaFileRepository::new(&self.db);
 
-        match repo.find_by_id(file_id).await {
-            Ok(Some(file)) => {
-                let path = std::path::Path::new(&file.file_path);
-                if path.exists() {
-                    // For images, try to use the original file directly (scaled)
-                    if file.file_type == "image" {
-                        let data = tokio::fs::read(path).await?;
-                        // Basic JPEG check - if it's not a JPEG, we can't serve it as thumbnail
-                        if data.starts_with(&[0xFF, 0xD8]) || data.starts_with(b"\x89PNG\r\n\x1a\n") {
-                            return Ok(Some(data));
-                        }
+        if let Ok(Some(file)) = repo.find_by_id(file_id).await {
+            let path = std::path::Path::new(&file.file_path);
+            if path.exists() {
+                // For images, try to use the original file directly (scaled)
+                if file.file_type == "image" {
+                    let data = tokio::fs::read(path).await?;
+                    // Basic JPEG check - if it's not a JPEG, we can't serve it as thumbnail
+                    if data.starts_with(&[0xFF, 0xD8]) || data.starts_with(b"\x89PNG\r\n\x1a\n") {
+                        return Ok(Some(data));
                     }
                 }
             }
-            _ => {}
         }
 
         Ok(None)
@@ -166,4 +165,13 @@ fn guess_mime_type(file_name: &str) -> String {
         "mkv" => "video/x-matroska".to_string(),
         _ => "application/octet-stream".to_string(),
     }
+}
+
+/// Check if a file is a JPEG by extension
+fn is_jpeg_file(file_name: &str) -> bool {
+    file_name
+        .rsplit('.')
+        .next()
+        .map(|s| s.eq_ignore_ascii_case("jpg") || s.eq_ignore_ascii_case("jpeg"))
+        .unwrap_or(false)
 }

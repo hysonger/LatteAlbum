@@ -3,10 +3,10 @@ use crate::config::Config;
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::{ProcessorRegistry, image_processor::StandardImageProcessor, heif_processor::HeifImageProcessor, video_processor::VideoProcessor};
 use crate::services::{FileService, ScanService, CacheService, Scheduler};
-use crate::websocket::ScanProgressBroadcaster;
+use crate::websocket::{ScanProgressBroadcaster, ScanStateManager};
 use axum::{
     body::Body,
-    extract::{Path, Request},
+    extract::Path,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -25,6 +25,7 @@ pub struct AppState {
     pub scan_service: Arc<ScanService>,
     pub cache_service: Arc<CacheService>,
     pub broadcaster: Arc<ScanProgressBroadcaster>,
+    pub scan_state: Arc<ScanStateManager>,
     pub processors: Arc<ProcessorRegistry>,
 }
 
@@ -49,6 +50,7 @@ impl App {
 
         // Create shared state
         let broadcaster = Arc::new(ScanProgressBroadcaster::new());
+        let scan_state = Arc::new(ScanStateManager::new(broadcaster.sender()));
         let cache_service = Arc::new(CacheService::new(&config.cache_dir).await?);
 
         // Initialize processor registry
@@ -63,8 +65,7 @@ impl App {
             config.clone(),
             db.clone(),
             processors.clone(),
-            cache_service.clone(),
-            broadcaster.clone(),
+            scan_state.clone(),
         ));
 
         let file_service = Arc::new(FileService::new(
@@ -80,6 +81,7 @@ impl App {
             scan_service,
             cache_service,
             broadcaster,
+            scan_state,
             processors,
         };
 
@@ -162,7 +164,7 @@ impl App {
     }
 
     /// Run the application
-    pub async fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let addr = format!("{}:{}", self.state.config.host, self.state.config.port);
         let listener = TcpListener::bind(&addr).await?;
         info!("Server listening on {}", addr);

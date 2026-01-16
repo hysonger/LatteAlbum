@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -116,13 +116,13 @@ pub fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> 
     use std::io::BufReader;
     use image::GenericImageView;
 
-    let file = File::open(path).map_err(|e| ProcessingError::IoError(e))?;
+    let file = File::open(path).map_err(ProcessingError::IoError)?;
     let reader = BufReader::new(file);
     let decoder = image::io::Reader::new(reader)
         .with_guessed_format()
         .map_err(|e| ProcessingError::Processing(e.to_string()))?;
 
-    if let Some(format) = decoder.format() {
+    if let Some(_format) = decoder.format() {
         let dimensions = decoder
             .decode()
             .map_err(|e| ProcessingError::Processing(e.to_string()))?

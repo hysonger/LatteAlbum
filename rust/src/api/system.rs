@@ -1,7 +1,6 @@
 use crate::{api::AppState, app::State};
 use axum::{debug_handler, response::IntoResponse, Json};
 use serde::Serialize;
-use std::sync::Arc;
 
 /// Response for rescan trigger
 #[derive(Debug, Serialize)]

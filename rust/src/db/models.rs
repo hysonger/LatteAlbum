@@ -3,6 +3,33 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// Custom serialization for NaiveDateTime to ISO string format
+mod date_serialization {
+    use chrono::NaiveDateTime;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(date: &Option<NaiveDateTime>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match date {
+            Some(d) => serializer.serialize_str(&d.format("%Y-%m-%dT%H:%M:%S").to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = Option::<String>::deserialize(deserializer)?;
+        match s {
+            Some(str) => Ok(NaiveDateTime::parse_from_str(&str, "%Y-%m-%dT%H:%M:%S").ok()),
+            None => Ok(None),
+        }
+    }
+}
+
 /// File type enumeration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileType {
@@ -54,19 +81,39 @@ pub struct MediaFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
 
-    #[serde(skip_serializing_if = "Option::is_none", rename = "exifTimestamp")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "exifTimestamp",
+        serialize_with = "date_serialization::serialize",
+        deserialize_with = "date_serialization::deserialize"
+    )]
     pub exif_timestamp: Option<NaiveDateTime>,
 
     #[serde(skip_serializing_if = "Option::is_none", rename = "exifTimezoneOffset")]
     pub exif_timezone_offset: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none", rename = "createTime")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "createTime",
+        serialize_with = "date_serialization::serialize",
+        deserialize_with = "date_serialization::deserialize"
+    )]
     pub create_time: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none", rename = "modifyTime")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "modifyTime",
+        serialize_with = "date_serialization::serialize",
+        deserialize_with = "date_serialization::deserialize"
+    )]
     pub modify_time: Option<NaiveDateTime>,
 
-    #[serde(skip_serializing_if = "Option::is_none", rename = "lastScanned")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "lastScanned",
+        serialize_with = "date_serialization::serialize",
+        deserialize_with = "date_serialization::deserialize"
+    )]
     pub last_scanned: Option<NaiveDateTime>,
 
     #[serde(skip_serializing_if = "Option::is_none", rename = "cameraMake")]
