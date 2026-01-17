@@ -134,7 +134,7 @@ pub async fn get_thumbnail(
         .get_thumbnail(&id, thumbnail_size)
         .await
     {
-        Ok(Some(data)) => {
+        Ok(Some((data, mime_type))) => {
             // Generate ETag from file ID and size
             let mut etag = String::with_capacity(64);
             write!(&mut etag, "\"{}-{}}}\"", id, size.size.as_deref().unwrap_or("medium")).unwrap();
@@ -142,7 +142,9 @@ pub async fn get_thumbnail(
             let mut response = Response::new(Body::from(data));
             response.headers_mut().insert(
                 axum::http::header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_static("image/jpeg"),
+                axum::http::HeaderValue::from_str(&mime_type).unwrap_or_else(|_| {
+                    axum::http::HeaderValue::from_static("image/jpeg")
+                }),
             );
             response.headers_mut().insert(
                 axum::http::header::CACHE_CONTROL,

@@ -17,12 +17,14 @@ impl FileService {
     }
 
     /// Get thumbnail for a file
-    /// For "full" size (target_width == 0), returns full-size transcoded image with disk caching
+    /// For "full" size (target_width == 0), browser-native formats are served directly without transcoding
+    /// (JPEG, PNG, GIF, WebP, AVIF, SVG). Other formats like HEIC/HEIF will be transcoded.
+    /// Returns (data, mime_type) tuple. For thumbnails, mime_type is "image/jpeg".
     pub async fn get_thumbnail(
         &self,
         file_id: &str,
         target_width: u32,
-    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<(Vec<u8>, String)>, Box<dyn std::error::Error>> {
         // Check if this is a full-size request
         let is_full_size = target_width == 0;
 
@@ -39,7 +41,13 @@ impl FileService {
 
         // For all sizes including full, check disk cache first
         if let Some(data) = self.cache.get_thumbnail(file_id, &size_label).await {
-            return Ok(Some(data));
+            // Thumbnails are always JPEG; full-size cache uses original format
+            let mime_type = if is_full_size {
+                guess_mime_type_from_path(file_id)
+            } else {
+                "image/jpeg".to_string()
+            };
+            return Ok(Some((data, mime_type)));
         }
 
         // Not in cache, generate thumbnail
@@ -49,11 +57,12 @@ impl FileService {
             Ok(Some(file)) => {
                 let path = std::path::Path::new(&file.file_path);
                 if path.exists() {
-                    // For full-size JPEG requests, serve original file directly (no transcoding needed)
-                    if is_full_size && is_jpeg_file(&file.file_name) {
+                    // For full-size requests with browser-native formats, serve original file directly (no transcoding)
+                    if is_full_size && is_browser_native_format(&file.file_name) {
                         if let Ok(data) = tokio::fs::read(path).await {
+                            let mime_type = guess_mime_type(&file.file_name);
                             let _ = self.cache.put_thumbnail(file_id, &size_label, &data).await;
-                            return Ok(Some(data));
+                            return Ok(Some((data, mime_type)));
                         }
                     }
 
@@ -63,7 +72,7 @@ impl FileService {
                             Ok(Some(thumbnail_data)) => {
                                 // Cache the generated thumbnail (all sizes including full)
                                 let _ = self.cache.put_thumbnail(file_id, &size_label, &thumbnail_data).await;
-                                return Ok(Some(thumbnail_data));
+                                return Ok(Some((thumbnail_data, "image/jpeg".to_string())));
                             }
                             Ok(None) => {
                                 debug!("Processor returned no thumbnail for {}", file_id);
@@ -99,7 +108,7 @@ impl FileService {
     async fn generate_fallback_thumbnail(
         &self,
         file_id: &str,
-    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<(Vec<u8>, String)>, Box<dyn std::error::Error>> {
         let repo = MediaFileRepository::new(&self.db);
 
         if let Ok(Some(file)) = repo.find_by_id(file_id).await {
@@ -108,10 +117,15 @@ impl FileService {
                 // For images, try to use the original file directly (scaled)
                 if file.file_type == "image" {
                     let data = tokio::fs::read(path).await?;
-                    // Basic JPEG check - if it's not a JPEG, we can't serve it as thumbnail
-                    if data.starts_with(&[0xFF, 0xD8]) || data.starts_with(b"\x89PNG\r\n\x1a\n") {
-                        return Ok(Some(data));
-                    }
+                    // Basic JPEG/PNG check - if it's not a supported format, we can't serve it as thumbnail
+                    let mime_type = if data.starts_with(&[0xFF, 0xD8]) {
+                        "image/jpeg".to_string()
+                    } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+                        "image/png".to_string()
+                    } else {
+                        return Ok(None);
+                    };
+                    return Ok(Some((data, mime_type)));
                 }
             }
         }
@@ -174,4 +188,43 @@ fn is_jpeg_file(file_name: &str) -> bool {
         .next()
         .map(|s| s.eq_ignore_ascii_case("jpg") || s.eq_ignore_ascii_case("jpeg"))
         .unwrap_or(false)
+}
+
+/// Check if a file format is natively supported by browsers (can be served directly without transcoding)
+/// Browser-native formats: JPEG, PNG, GIF, WebP, AVIF, SVG
+/// Formats that need transcoding: HEIC/HEIF, TIFF, BMP
+fn is_browser_native_format(file_name: &str) -> bool {
+    file_name
+        .rsplit('.')
+        .next()
+        .map(|s| {
+            let ext = s.to_lowercase();
+            matches!(
+                ext.as_str(),
+                "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "svg"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Guess MIME type from file path or ID (used for cache lookup)
+fn guess_mime_type_from_path(file_name: &str) -> String {
+    let ext = file_name
+        .rsplit('.')
+        .next()
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+
+    match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg".to_string(),
+        "png" => "image/png".to_string(),
+        "gif" => "image/gif".to_string(),
+        "webp" => "image/webp".to_string(),
+        "avif" => "image/avif".to_string(),
+        "svg" => "image/svg+xml".to_string(),
+        "heic" | "heif" => "image/heic".to_string(),
+        "tiff" | "tif" => "image/tiff".to_string(),
+        "bmp" => "image/bmp".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
 }
