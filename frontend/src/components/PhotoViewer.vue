@@ -70,30 +70,77 @@
           </div>
         </div>
         <div class="meta-info" v-show="showDetailInfo">
-          <p v-if="currentFile.exifTimestamp">
-            拍摄时间: {{ formatDate(currentFile.exifTimestamp, currentFile.exifTimezoneOffset) }}
-          </p>
-          <p v-if="currentFile.createTime">
-            创建时间: {{ formatDate(currentFile.createTime) }}
-          </p>
-          <p v-if="currentFile.modifyTime">
-            修改时间: {{ formatDate(currentFile.modifyTime) }}
-          </p>
-          <p v-if="cameraDisplay">
-            相机型号: {{ cameraDisplay }}
-          </p>
-          <p v-if="currentFile.width && currentFile.height">
-            尺寸: {{ currentFile.width }} × {{ currentFile.height }}
-          </p>
-          <p v-if="currentFile.duration">
-            时长: {{ formatDuration(currentFile.duration) }}
-          </p>
-          <p v-if="currentFile.videoCodec">
-            视频编码: {{ currentFile.videoCodec }}
-          </p>
-          <p v-if="currentFile.fileSize">
-            文件大小: {{ formatFileSize(currentFile.fileSize) }}
-          </p>
+          <!-- 时间信息 -->
+          <div class="meta-group">
+            <div class="meta-item" v-if="currentFile.exifTimestamp">
+              <span class="meta-label">拍摄时间</span>
+              <span class="meta-value">{{ formatDate(currentFile.exifTimestamp, currentFile.exifTimezoneOffset) }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.createTime">
+              <span class="meta-label">创建时间</span>
+              <span class="meta-value">{{ formatDate(currentFile.createTime) }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.modifyTime">
+              <span class="meta-label">修改时间</span>
+              <span class="meta-value">{{ formatDate(currentFile.modifyTime) }}</span>
+            </div>
+          </div>
+
+          <!-- 拍摄设备 -->
+          <div class="meta-group">
+            <div class="meta-item" v-if="currentFile.cameraMake">
+              <span class="meta-label">相机厂商</span>
+              <span class="meta-value">{{ currentFile.cameraMake }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.cameraModel">
+              <span class="meta-label">相机型号</span>
+              <span class="meta-value">{{ currentFile.cameraModel }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.lensModel">
+              <span class="meta-label">镜头型号</span>
+              <span class="meta-value">{{ currentFile.lensModel }}</span>
+            </div>
+          </div>
+
+          <!-- 拍摄参数 -->
+          <div class="meta-group">
+            <div class="meta-item" v-if="currentFile.exposureTime">
+              <span class="meta-label">快门速度</span>
+              <span class="meta-value">{{ formatExposureTime(currentFile.exposureTime) }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.aperture">
+              <span class="meta-label">光圈</span>
+              <span class="meta-value">f/{{ currentFile.aperture }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.iso">
+              <span class="meta-label">ISO</span>
+              <span class="meta-value">{{ currentFile.iso }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.focalLength">
+              <span class="meta-label">焦距</span>
+              <span class="meta-value">{{ currentFile.focalLength }}</span>
+            </div>
+          </div>
+
+          <!-- 文件信息 -->
+          <div class="meta-group">
+            <div class="meta-item" v-if="currentFile.width && currentFile.height">
+              <span class="meta-label">尺寸</span>
+              <span class="meta-value">{{ currentFile.width }} × {{ currentFile.height }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.fileSize">
+              <span class="meta-label">文件大小</span>
+              <span class="meta-value">{{ formatFileSize(currentFile.fileSize) }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.duration">
+              <span class="meta-label">时长</span>
+              <span class="meta-value">{{ formatDuration(currentFile.duration) }}</span>
+            </div>
+            <div class="meta-item" v-if="currentFile.videoCodec">
+              <span class="meta-label">视频编码</span>
+              <span class="meta-value">{{ currentFile.videoCodec }}</span>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -137,23 +184,6 @@ const isVideo = computed(() => currentFile.value?.fileType === 'video')
 
 const hasPrev = computed(() => currentIndex.value > 0)
 const hasNext = computed(() => currentIndex.value < props.neighbors.length - 1)
-
-const cameraDisplay = computed(() => {
-  const make = currentFile.value?.cameraMake
-  const model = currentFile.value?.cameraModel
-  
-  if (!model) return make || ''
-  if (!make) return model
-  
-  const modelLower = model.toLowerCase()
-  const makeLower = make.toLowerCase()
-  
-  if (modelLower.startsWith(makeLower)) {
-    return model
-  }
-  
-  return `${make} ${model}`
-})
 
 // 格式化日期
 const formatDate = (dateString: string, timezoneOffset?: string) => {
@@ -200,6 +230,19 @@ const formatDuration = (seconds: number) => {
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = Math.floor(seconds % 60)
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+}
+
+// 格式化快门速度（如 "1/125" 显示为 "1/125s"）
+const formatExposureTime = (exposureTime: string) => {
+  if (!exposureTime) return ''
+  // 如果是分数形式如 "1/125.5"，精确到小数点后3位
+  if (exposureTime.startsWith('1/')) {
+    const denominator = parseFloat(exposureTime.substring(2))
+    if (!isNaN(denominator)) {
+      return `1/${denominator.toFixed(3)}s`
+    }
+  }
+  return `${exposureTime}s`
 }
 
 // 导航操作
@@ -696,9 +739,32 @@ defineExpose({
   font-size: 0.85rem;
 }
 
-.meta-info p {
-  margin: 4px 0;
+.meta-group {
+  margin-bottom: 12px;
+}
+
+.meta-group:last-child {
+  margin-bottom: 0;
+}
+
+.meta-group .meta-item {
+  display: inline-block;
+  vertical-align: top;
+  min-width: 140px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+}
+
+.meta-label {
+  display: block;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.meta-value {
+  display: block;
   color: rgba(255, 255, 255, 0.9);
+  word-break: break-word;
 }
 
 .close-btn {

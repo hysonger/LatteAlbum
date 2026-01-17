@@ -202,6 +202,94 @@ Body::from_stream(stream)
 - `get_thumbnail_disk_path()` - 获取磁盘缓存路径（用于流式传输）
 - `has_thumbnail()` - 检查缓存是否存在
 
+### 缓存与缩略图性能优化
+
+本节描述缩略图生成和缓存机制的数据流优化策略。
+
+#### 优化概览
+
+| 优化项 | 文件 | 效果 |
+|--------|------|------|
+| HEIC stride 处理 | `heif_processor.rs` | stride 匹配时避免数据复制 |
+| CacheService Bytes | `cache_service.rs` | 内存缓存使用 Bytes 实现 O(1) 克隆 |
+
+#### 1. HEIC stride 优化
+
+libheif 解码 RGBA 数据时可能包含 stride padding（行对齐填充）。当 stride == width * 4 时，数据是紧密排列的，无需复制。
+
+```rust
+// heif_processor.rs
+let bytes_per_row = width as usize * 4;
+
+// 只克隆一次，后续使用所有权数据
+let owned_data: Vec<u8> = interleaved.data.to_vec();
+
+let rgba_image = if stride == bytes_per_row {
+    // 紧密排列，直接使用所有权数据
+    image::RgbaImage::from_raw(width, height, owned_data)
+} else {
+    // 有 padding，需要逐行复制去除填充
+    let mut rgb_data = Vec::with_capacity(width as usize * height as usize * 4);
+    for row in 0..height as usize {
+        let row_offset = row * stride;
+        rgb_data.extend_from_slice(&owned_data[row_offset..row_offset + bytes_per_row]);
+    }
+    image::RgbaImage::from_raw(width, height, rgb_data)
+};
+```
+
+**优化效果**: 避免在 stride 匹配时进行不必要的数据复制，减少 HEIC 处理时的内存峰值。
+
+#### 2. CacheService Bytes 优化
+
+使用 `bytes::Bytes` 替代 `Vec<u8>` 作为内存缓存类型。Bytes 基于引用计数，克隆操作是 O(1) 而非 O(n)。
+
+```rust
+// cache_service.rs
+use bytes::Bytes;
+
+pub struct CacheService {
+    memory_cache: Arc<Cache<String, Bytes>>,  // 使用 Bytes
+    disk_cache_dir: PathBuf,
+}
+
+pub async fn get_thumbnail(&self, file_id: &str, size: &str) -> Option<Bytes> {
+    // L1: 检查内存缓存
+    if let Some(data) = self.memory_cache.get(&cache_key).await {
+        return Some(data);  // Bytes 克隆 O(1)
+    }
+
+    // L2: 检查磁盘缓存
+    if let Ok(data) = fs::read(&disk_path).await {
+        let bytes = Bytes::from(data);  // 从 Vec 转换为 Bytes
+        self.memory_cache.insert(cache_key.clone(), bytes.clone()).await;
+        return Some(bytes);
+    }
+    None
+}
+
+pub async fn put_thumbnail_bytes(&self, file_id: &str, size: &str, data: Bytes) -> std::io::Result<()> {
+    self.memory_cache.insert(cache_key.clone(), data.clone()).await;
+    let disk_path = self.disk_cache_dir.join(&cache_key);
+    fs::write(&disk_path, &data).await?;
+    Ok(())
+}
+```
+
+**优化效果**:
+- 内存缓存命中时的数据返回无需复制
+- 磁盘缓存命中时插入内存缓存是 O(1) 克隆
+- API 层 `file_service.rs` 在返回前调用 `.to_vec()` 转换为 Vec<u8>
+
+#### 3. 数据流对比
+
+| 场景 | 优化前 | 优化后 |
+|------|--------|--------|
+| 缓存命中（内存） | 返回 `Vec<u8>` | 返回 `Bytes`（直接返回，无复制） |
+| 缓存命中（磁盘） | `read → clone → insert` | `read → Bytes::from → clone` |
+| HEIC 处理 | 总是 `interleaved.data.clone()` | stride 匹配时直接使用所有权数据 |
+| 内存缓存克隆 | `Vec<u8>` 克隆 O(n) | `Bytes` 克隆 O(1) |
+
 ### API Endpoints
 
 **File Operations**:
@@ -637,6 +725,64 @@ The `DateNavigator.vue` component provides date navigation with left/right arrow
 | Newest (index=0) | Enabled | Disabled |
 | Oldest (index=length-1) | Disabled | Enabled |
 | Middle | Enabled | Enabled |
+
+### PhotoViewer Component - Metadata Display
+
+The `PhotoViewer.vue` component displays photo metadata in detail view. Key features:
+
+**Displayed Metadata Fields**:
+| Category | Fields |
+|----------|--------|
+| Time | `exifTimestamp`, `createTime`, `modifyTime` |
+| Device | `cameraMake`, `cameraModel`, `lensModel` |
+| Settings | `exposureTime`, `aperture`, `iso`, `focalLength` |
+| File | `width`, `height`, `fileSize`, `duration`, `videoCodec` |
+
+**UI Layout**:
+- Metadata organized into groups (Time, Device, Settings, File)
+- Group titles removed, only fields displayed
+- Fields within groups displayed as inline-blocks
+- Each field shows label and value on separate lines
+
+**Formatting**:
+```typescript
+// Exposure time (e.g., "1/125" → "1/125.000s", precision to 3 decimal places)
+const formatExposureTime = (exposureTime: string) => {
+  if (exposureTime.startsWith('1/')) {
+    const denominator = parseFloat(exposureTime.substring(2))
+    if (!isNaN(denominator)) {
+      return `1/${denominator.toFixed(3)}s`
+    }
+  }
+  return `${exposureTime}s`
+}
+```
+
+**Frontend Type Definition** (`frontend/src/types/index.ts`):
+```typescript
+export interface MediaFile {
+  id: string
+  fileName: string
+  fileType: 'image' | 'video'
+  mimeType?: string
+  fileSize?: number
+  width?: number
+  height?: number
+  exifTimestamp?: string
+  exifTimezoneOffset?: string
+  createTime?: string
+  modifyTime?: string
+  cameraMake?: string
+  cameraModel?: string
+  lensModel?: string
+  exposureTime?: string
+  aperture?: string
+  iso?: number
+  focalLength?: string
+  duration?: number
+  videoCodec?: string
+}
+```
 
 ## Common Development Guideline
 

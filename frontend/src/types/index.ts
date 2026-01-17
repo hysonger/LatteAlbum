@@ -2,14 +2,15 @@ export interface MediaFile {
   id: string
   fileName: string
   fileType: 'image' | 'video'
-  mimeType: string
-  fileSize: number
+  mimeType?: string
+  fileSize?: number
   width?: number
   height?: number
   exifTimestamp?: string
   exifTimezoneOffset?: string
-  createTime: string
-  modifyTime: string
+  createTime?: string
+  modifyTime?: string
+  lastScanned?: string
   cameraMake?: string
   cameraModel?: string
   lensModel?: string
