@@ -108,6 +108,72 @@ rust/src/
 
 Processors are registered in `app.rs` via `ProcessorRegistry`. Higher priority matches first.
 
+### Image Transcoding and EXIF Extraction
+
+#### Thumbnail Generation Pipeline
+
+| Format | Decoder | Scaling | Encoder | Output |
+|--------|---------|---------|---------|--------|
+| JPEG/PNG/GIF/WebP/TIFF | `image` crate | `thumbnail()` (fast integer) | JPEG (80% quality) | JPEG |
+| HEIC/HEIF | `libheif-rs` | `image.scale()` (libheif built-in) | JPEG (80% quality) | JPEG |
+
+#### 缩略图生成技术细节
+
+**标准图片 (JPEG/PNG/GIF/WebP/TIFF)** (`image_processor.rs`):
+```rust
+// 使用 image crate 解码
+let img = ImageReader::open(path)?.decode()?;
+
+// 使用 thumbnail() 方法 - 快速整数算法，比 resize(Triangle) 快约 2 倍，但是会存在锯齿
+let thumb = img.thumbnail(target_width, target_width);
+
+// 编码为 JPEG
+let encoder = JpegEncoder::new_with_quality(&mut bytes, (quality * 100.0) as u8);
+```
+
+**HEIC/HEIF 图片** (`heif_processor.rs`):
+```rust
+// 使用 libheif-rs 解码
+let ctx = HeifContext::read_from_file(&path_str)?;
+let handle = ctx.primary_image_handle()?;
+let image = lib_heif.decode(&handle, ColorSpace::Rgb(RgbChroma::Rgba), None)?;
+
+// 使用 libheif 内置缩放
+let scaled = image.scale(target_width, target_height, None)?;
+
+// 转换为 RGBA → RGB → JPEG
+let rgb_image = DynamicImage::ImageRgba8(rgba_image).to_rgb8();
+```
+
+**性能特点**:
+- HEIC 解码速度约为 JPG 的 170x (3ms vs 555ms)
+- JPEG 编码速度约为 WebP 的 3-7x
+- 缩略图使用 `spawn_blocking` 在阻塞线程池中执行，避免阻塞异步 Runtime
+
+#### EXIF 元数据提取
+
+**使用库**: `kamadak-exif` (crates.io) / `exif` (GitHub package name)
+
+**提取字段**:
+| 字段 | EXIF Tag | 说明 |
+|------|----------|------|
+| `exif_timestamp` | DateTimeOriginal | 拍摄时间 |
+| `exif_timezone_offset` | OffsetTimeOriginal | 拍摄时区 |
+| `camera_make` | Make | 相机厂商 |
+| `camera_model` | Model | 相机型号 |
+| `lens_model` | LensModel | 镜头型号 |
+| `aperture` | FNumber | 光圈值 |
+| `exposure_time` | ExposureTime | 快门速度 |
+| `iso` | ISOSpeedRatings | ISO 感光度 |
+| `focal_length` | FocalLength | 焦距 |
+
+**实现位置**:
+- 通用提取函数: `image_processor.rs:extract_exif()`
+- HEIC 格式: 复用相同的 `extract_exif()` 函数
+- 支持格式: JPEG, HEIC, TIFF, PNG 等
+
+**已知限制**: 部分 HEIC 文件的 EXIF 数据格式非标准，提取可能失败（记录在 debug 级别日志）
+
 ### API Endpoints
 
 **File Operations**:

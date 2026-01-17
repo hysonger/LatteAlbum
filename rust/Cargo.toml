@@ -56,14 +56,18 @@ tokio-stream = "0.1"
 tokio-cron-scheduler = "0.12"
 
 # EXIF Support
-kamadak-exif = "0.6.1"
-little_exif = "0.6.23"
+# 由于小米14的照片存在超大的EXIF块，需要带入此库的最新提交以修复问题
+#kamadak-exif = "0.6.1"
+#exif = { path = "vendor/exif-rs" }
+exif = { git = "https://github.com/kamadak/exif-rs", rev = "7cb491c" }
 
 libheif-rs = { version = "2.5.2", features = ["image"] }
 
+# Example-only dependencies (used by bench_transcode_formats.rs)
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tokio-test = "0.4"
+webp = "0.3"
 
 [profile.release]
 opt-level = 3
