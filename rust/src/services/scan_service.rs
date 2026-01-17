@@ -352,6 +352,7 @@ impl ScanService {
 
     /// Batch check which files exist in database (optimized for bulk queries)
     /// Returns (to_add, to_update, skip_list) - skip_list contains files with unchanged modify_time
+    /// Uses batch_find_by_paths_batch for efficient bulk SELECT queries
     async fn batch_check_exists(&self, files: &[PathBuf]) -> (u64, u64, Vec<PathBuf>) {
         const BATCH_SIZE: usize = 500;
 
@@ -365,12 +366,20 @@ impl ScanService {
                 break;
             }
 
-            match repo.batch_find_by_paths(chunk).await {
-                Ok(existing_map) => {
+            // Use the new batch query method for efficient bulk SELECT
+            match repo.batch_find_by_paths_batch(chunk).await {
+                Ok(existing_files) => {
+                    // Create a HashMap for O(1) lookup
+                    use std::collections::HashMap;
+                    let existing_map: HashMap<String, &MediaFile> = existing_files
+                        .iter()
+                        .map(|f| (f.file_path.clone(), f))
+                        .collect();
+
                     for path in chunk {
                         let path_str = path.to_string_lossy().to_string();
                         match existing_map.get(&path_str) {
-                            Some(Some(existing)) => {
+                            Some(existing) => {
                                 // File exists - check if modify_time changed
                                 if let Ok(fs_metadata) = path.metadata() {
                                     if let Ok(fs_modify_time) = fs_metadata.modified() {
@@ -399,7 +408,7 @@ impl ScanService {
                                     to_update += 1;
                                 }
                             }
-                            Some(None) | None => {
+                            None => {
                                 // New file - needs processing
                                 to_add += 1;
                             }

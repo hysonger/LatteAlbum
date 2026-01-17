@@ -85,7 +85,7 @@ impl FileService {
 
                     // Generate thumbnail using processor (which uses transcoding_pool internally)
                     if let Some(processor) = self.processors.find_processor(path) {
-                        match processor.generate_thumbnail(path, target_width, 0.9).await {
+                        match processor.generate_thumbnail(path, target_width, 0.8).await {
                             Ok(Some(thumbnail_data)) => {
                                 // Cache the generated thumbnail (all sizes including full)
                                 let _ = self.cache.put_thumbnail(file_id, &size_label, &thumbnail_data).await;

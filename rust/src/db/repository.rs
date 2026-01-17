@@ -191,41 +191,45 @@ impl<'a> MediaFileRepository<'a> {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Delete files not in the given path list
+    /// Delete files not in the given path list using batch DELETE
+    /// Uses DELETE ... WHERE NOT IN (...) for efficient batch operation
     pub async fn delete_missing(&self, existing_paths: &[String]) -> Result<u64, sqlx::Error> {
-        use std::collections::HashSet;
+        use sqlx::QueryBuilder;
+        use sqlx::Sqlite;
 
         // 如果没有现有文件，删除所有记录
         if existing_paths.is_empty() {
             let result = sqlx::query("DELETE FROM media_files WHERE last_scanned IS NOT NULL")
                 .execute(self.db.get_pool())
                 .await?;
+            tracing::debug!("delete_missing: deleted {} files (all)", result.rows_affected());
             return Ok(result.rows_affected());
         }
 
-        // 将 existing_paths 转为 HashSet 用于快速查找
-        let existing_set: HashSet<&str> = existing_paths.iter().map(|s| s.as_str()).collect();
+        // SQLite parameter limit: 32766
+        // Each path uses 1 parameter for NOT IN clause
+        const MAX_PARAMS: usize = 32766;
+        const MAX_PATHS: usize = MAX_PARAMS;
 
-        // 查询所有需要保留的记录的路径
-        let existing_files: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT file_path FROM media_files WHERE last_scanned IS NOT NULL"
-        )
-        .fetch_all(self.db.get_pool())
-        .await?;
+        let mut total_deleted = 0u64;
 
-        // 逐条删除不存在的文件
-        let mut deleted = 0;
-        for file_path in existing_files {
-            if !existing_set.contains(file_path.as_str()) {
-                sqlx::query("DELETE FROM media_files WHERE file_path = ?")
-                    .bind(&file_path)
-                    .execute(self.db.get_pool())
-                    .await?;
-                deleted += 1;
-            }
+        // Process in batches to stay within SQLite parameter limits
+        for chunk in existing_paths.chunks(MAX_PATHS) {
+            let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
+                "DELETE FROM media_files WHERE last_scanned IS NOT NULL AND file_path NOT IN "
+            );
+
+            query_builder.push_tuples(chunk.iter(), |mut b, path| {
+                b.push_bind(path.as_str());
+            });
+
+            let query = query_builder.build();
+            let result = query.execute(self.db.get_pool()).await?;
+            total_deleted += result.rows_affected();
         }
 
-        Ok(deleted)
+        tracing::debug!("delete_missing: {} files deleted", total_deleted);
+        Ok(total_deleted)
     }
 
     /// Count files with filters
@@ -320,17 +324,71 @@ impl<'a> MediaFileRepository<'a> {
         Ok(result)
     }
 
-    /// Batch upsert files in a single transaction
+    /// Batch check file existence using single SQL query with IN clause
+    /// Uses QueryBuilder for efficient bulk SELECT
+    pub async fn batch_find_by_paths_batch(&self, paths: &[PathBuf]) -> Result<Vec<MediaFile>, sqlx::Error> {
+        use sqlx::QueryBuilder;
+        use sqlx::Sqlite;
+
+        if paths.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // For very large batches, we need to chunk to avoid SQLite parameter limits
+        // SQLite: 32766 parameters max, each path uses 1 parameter
+        const MAX_PARAMS: usize = 32766;
+        const MAX_PATHS: usize = MAX_PARAMS;
+
+        // Collect owned strings first to avoid lifetime issues with chunks
+        let path_strings: Vec<String> = paths.iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+
+        let mut all_files: Vec<MediaFile> = Vec::new();
+
+        // Use standard slice chunks
+        for chunk in path_strings.chunks(MAX_PATHS) {
+            let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
+                "SELECT * FROM media_files WHERE file_path IN "
+            );
+
+            query_builder.push_tuples(chunk.iter(), |mut b, path| {
+                b.push_bind(path.as_str());
+            });
+
+            let query = query_builder.build_query_as::<MediaFile>();
+            let files = query.fetch_all(self.db.get_pool()).await?;
+            all_files.extend(files);
+        }
+
+        tracing::debug!("batch_find_by_paths_batch: {} paths, {} files found",
+            paths.len(), all_files.len());
+
+        Ok(all_files)
+    }
+
+    /// Batch upsert files using QueryBuilder for efficient bulk INSERT
     pub async fn batch_upsert(&self, files: &[MediaFile]) -> Result<(), sqlx::Error> {
+        use sqlx::QueryBuilder;
+        use sqlx::Sqlite;
+
         if files.is_empty() {
             return Ok(());
         }
 
+        // SQLite parameter limit: 32766
+        // Each file uses 23 parameters, so max ~1424 files per batch
+        const MAX_PARAMS: usize = 32766;
+        const FIELDS_PER_FILE: usize = 23;
+        const MAX_FILES_PER_BATCH: usize = MAX_PARAMS / FIELDS_PER_FILE;
+
         let mut tx = self.db.get_pool().begin().await?;
         let now = Utc::now().naive_utc();
 
-        for file in files {
-            sqlx::query(
+        // Process in batches to stay within SQLite parameter limits
+        for chunk in files.chunks(MAX_FILES_PER_BATCH) {
+            // push_values automatically adds VALUES keyword
+            let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
                 "INSERT OR REPLACE INTO media_files (
                     id, file_path, file_name, file_type, mime_type, file_size,
                     width, height, exif_timestamp, exif_timezone_offset,
@@ -338,64 +396,85 @@ impl<'a> MediaFileRepository<'a> {
                     camera_make, camera_model, lens_model,
                     exposure_time, aperture, iso, focal_length,
                     duration, video_codec, thumbnail_generated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            )
-            .bind(&file.id)
-            .bind(&file.file_path)
-            .bind(&file.file_name)
-            .bind(&file.file_type)
-            .bind(&file.mime_type)
-            .bind(file.file_size)
-            .bind(file.width)
-            .bind(file.height)
-            .bind(file.exif_timestamp)
-            .bind(file.exif_timezone_offset.clone())
-            .bind(file.create_time)
-            .bind(file.modify_time)
-            .bind(now)
-            .bind(file.camera_make.clone())
-            .bind(file.camera_model.clone())
-            .bind(file.lens_model.clone())
-            .bind(file.exposure_time.clone())
-            .bind(file.aperture.clone())
-            .bind(file.iso)
-            .bind(file.focal_length.clone())
-            .bind(file.duration)
-            .bind(file.video_codec.clone())
-            .bind(if file.thumbnail_generated { 1 } else { 0 })
-            .execute(tx.as_mut())
-            .await?;
+                ) "
+            );
+
+            query_builder.push_values(chunk.iter(), |mut b, file| {
+                b.push_bind(&file.id)
+                    .push_bind(&file.file_path)
+                    .push_bind(&file.file_name)
+                    .push_bind(&file.file_type)
+                    .push_bind(&file.mime_type)
+                    .push_bind(file.file_size)
+                    .push_bind(file.width)
+                    .push_bind(file.height)
+                    .push_bind(file.exif_timestamp)
+                    .push_bind(file.exif_timezone_offset.clone())
+                    .push_bind(file.create_time)
+                    .push_bind(file.modify_time)
+                    .push_bind(now)
+                    .push_bind(file.camera_make.clone())
+                    .push_bind(file.camera_model.clone())
+                    .push_bind(file.lens_model.clone())
+                    .push_bind(file.exposure_time.clone())
+                    .push_bind(file.aperture.clone())
+                    .push_bind(file.iso)
+                    .push_bind(file.focal_length.clone())
+                    .push_bind(file.duration)
+                    .push_bind(file.video_codec.clone())
+                    .push_bind(if file.thumbnail_generated { 1 } else { 0 });
+            });
+
+            let query = query_builder.build();
+            query.execute(tx.as_mut()).await?;
         }
 
         tx.commit().await?;
+
+        tracing::debug!("batch_upsert: {} files inserted/updated", files.len());
         Ok(())
     }
 
-    /// Batch update last_scanned for files without re-extracting metadata
-    /// Used when file modification time hasn't changed
+    /// Batch update last_scanned for files using QueryBuilder for efficient bulk UPDATE
+    /// Uses UPDATE ... WHERE IN (...) for batch operation
     pub async fn batch_touch(&self, paths: &[PathBuf]) -> Result<u64, sqlx::Error> {
+        use sqlx::QueryBuilder;
+        use sqlx::Sqlite;
+
         if paths.is_empty() {
             return Ok(0);
         }
 
-        let now = Utc::now().naive_utc();
+        // SQLite parameter limit: 32766
+        // Each path uses 1 parameter for IN clause, plus 1 for last_scanned
+        const MAX_PARAMS: usize = 32766;
+        const MAX_PATHS: usize = MAX_PARAMS - 1;  // Reserve one for last_scanned
+
         let path_strings: Vec<String> = paths.iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
 
-        // 逐条更新以避免 SQLx 动态查询问题
-        let mut total_updated = 0;
-        for path in &path_strings {
-            let result = sqlx::query(
-                "UPDATE media_files SET last_scanned = ? WHERE file_path = ?"
-            )
-            .bind(now)
-            .bind(path.as_str())
-            .execute(self.db.get_pool())
-            .await?;
-            total_updated += result.rows_affected() as u64;
+        let mut total_updated = 0u64;
+        let now = Utc::now().naive_utc();
+
+        // Process in batches to stay within SQLite parameter limits
+        for chunk in path_strings.chunks(MAX_PATHS) {
+            let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
+                "UPDATE media_files SET last_scanned = "
+            );
+            query_builder.push_bind(now);
+            query_builder.push(" WHERE file_path IN ");
+
+            query_builder.push_tuples(chunk.iter(), |mut b, path| {
+                b.push_bind(path.as_str());
+            });
+
+            let query = query_builder.build();
+            let result = query.execute(self.db.get_pool()).await?;
+            total_updated += result.rows_affected();
         }
 
+        tracing::debug!("batch_touch: {} paths updated", total_updated);
         Ok(total_updated)
     }
 
