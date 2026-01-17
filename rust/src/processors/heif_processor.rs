@@ -117,25 +117,27 @@ impl MediaProcessor for HeifImageProcessor {
                 .as_ref()
                 .ok_or_else(|| ProcessingError::Processing("No interleaved plane in HEIC".to_string()))?;
 
-            // Handle stride vs width difference (for memory alignment padding)
             let width = interleaved.width;
             let height = interleaved.height;
             let stride = interleaved.stride;
-            let data = &interleaved.data;
+            let bytes_per_row = width as usize * 4;
+
+            // Take ownership of data once - avoid repeated cloning
+            // This is the key optimization: clone once, use in both branches
+            let owned_data: Vec<u8> = interleaved.data.to_vec();
 
             // Create RgbaImage from raw data, handling stride padding if necessary
             // interleaved 数据是 4 通道 (R, G, B, A)，不是 3 通道
-            let rgba_image = if stride == width as usize * 4 {
-                // Data is tightly packed, can use directly
-                image::RgbaImage::from_raw(width, height, data.to_vec())
+            let rgba_image = if stride == bytes_per_row {
+                // Data is tightly packed, can use directly without stride copying
+                image::RgbaImage::from_raw(width, height, owned_data)
                     .ok_or_else(|| ProcessingError::Processing("Failed to create image from HEIC data".to_string()))?
             } else {
-                // Data has padding, need to copy row by row
-                let mut rgb_data = Vec::with_capacity(((width as usize * height as usize * 4)));
-                let bytes_per_row = width as usize * 4;
+                // Data has padding, need to copy row by row (remove padding)
+                let mut rgb_data = Vec::with_capacity(width as usize * height as usize * 4);
                 for row in 0..height as usize {
                     let row_offset = row * stride;
-                    rgb_data.extend_from_slice(&data[row_offset..row_offset + bytes_per_row]);
+                    rgb_data.extend_from_slice(&owned_data[row_offset..row_offset + bytes_per_row]);
                 }
                 image::RgbaImage::from_raw(width, height, rgb_data)
                     .ok_or_else(|| ProcessingError::Processing("Failed to create image from HEIC data".to_string()))?

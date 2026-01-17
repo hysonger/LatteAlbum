@@ -47,7 +47,8 @@ impl FileService {
             } else {
                 "image/jpeg".to_string()
             };
-            return Ok(Some((data, mime_type)));
+            // Convert Bytes to Vec<u8> for API compatibility
+            return Ok(Some((data.to_vec(), mime_type)));
         }
 
         // Not in cache, generate thumbnail

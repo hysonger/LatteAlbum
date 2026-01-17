@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use moka::future::Cache;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -5,8 +6,8 @@ use tokio::fs;
 
 /// Three-level cache service for thumbnails
 pub struct CacheService {
-    // L1: Memory cache
-    memory_cache: Arc<Cache<String, Vec<u8>>>,
+    // L1: Memory cache - using Bytes for efficient cloning
+    memory_cache: Arc<Cache<String, Bytes>>,
     // L2: Disk cache directory
     disk_cache_dir: PathBuf,
 }
@@ -29,10 +30,11 @@ impl CacheService {
     }
 
     /// Get thumbnail from cache
-    pub async fn get_thumbnail(&self, file_id: &str, size: &str) -> Option<Vec<u8>> {
+    /// Returns Bytes for efficient cloning in downstream operations
+    pub async fn get_thumbnail(&self, file_id: &str, size: &str) -> Option<Bytes> {
         let cache_key = format!("{}_{}", file_id, size);
 
-        // 1. Check memory cache
+        // 1. Check memory cache - Bytes supports cheap cloning
         if let Some(data) = self.memory_cache.get(&cache_key).await {
             tracing::debug!("L1 cache hit for {}", cache_key);
             return Some(data);
@@ -42,9 +44,11 @@ impl CacheService {
         let disk_path = self.disk_cache_dir.join(&cache_key);
         if let Ok(data) = fs::read(&disk_path).await {
             tracing::debug!("L2 cache hit for {}", cache_key);
-            // Populate memory cache
-            self.memory_cache.insert(cache_key, data.clone()).await;
-            return Some(data);
+            // Convert to Bytes - cheap clone for memory cache insertion
+            let bytes = Bytes::from(data);
+            // Clone for memory cache (Bytes clone is O(1))
+            self.memory_cache.insert(cache_key.clone(), bytes.clone()).await;
+            return Some(bytes);
         }
 
         None
@@ -77,15 +81,34 @@ impl CacheService {
     }
 
     /// Store thumbnail in cache
+    /// Accepts Bytes or Vec<u8> for flexibility
     pub async fn put_thumbnail(&self, file_id: &str, size: &str, data: &[u8]) -> std::io::Result<()> {
         let cache_key = format!("{}_{}", file_id, size);
 
-        // 1. Store in memory cache
-        self.memory_cache.insert(cache_key.clone(), data.to_vec()).await;
+        // Convert to Bytes for memory cache (efficient storage)
+        let bytes = Bytes::from(data.to_vec());
 
-        // 2. Store in disk cache
+        // Store in memory cache
+        self.memory_cache.insert(cache_key.clone(), bytes).await;
+
+        // Store in disk cache
         let disk_path = self.disk_cache_dir.join(&cache_key);
         fs::write(&disk_path, data).await?;
+
+        Ok(())
+    }
+
+    /// Alternative put method that accepts Bytes directly
+    /// Avoids reallocation if caller already has Bytes
+    pub async fn put_thumbnail_bytes(&self, file_id: &str, size: &str, data: Bytes) -> std::io::Result<()> {
+        let cache_key = format!("{}_{}", file_id, size);
+
+        // Store in memory cache (Bytes is efficient)
+        self.memory_cache.insert(cache_key.clone(), data.clone()).await;
+
+        // Store in disk cache
+        let disk_path = self.disk_cache_dir.join(&cache_key);
+        fs::write(&disk_path, &data).await?;
 
         Ok(())
     }
