@@ -12,6 +12,12 @@ pub async fn handle_websocket(ws: WebSocket, broadcaster: Arc<ScanProgressBroadc
     // Create channel for progress updates
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
+    // Send current scan state immediately on connection (for page refresh recovery)
+    let current_progress = broadcaster.get_current_progress().await;
+    if let Ok(json) = serde_json::to_string(&current_progress) {
+        let _ = sender.send(Message::Text(json.into())).await;
+    }
+
     // Subscribe to progress updates
     let mut progress_rx = broadcaster.subscribe();
 

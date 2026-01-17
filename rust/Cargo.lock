@@ -1490,6 +1490,7 @@ dependencies = [
  "libheif-rs",
  "mime_guess",
  "moka",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",

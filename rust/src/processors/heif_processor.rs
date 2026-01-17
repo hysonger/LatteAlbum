@@ -3,8 +3,11 @@ use crate::processors::processor_trait::{
     MediaMetadata, MediaProcessor, MediaType, ProcessingError,
 };
 use async_trait::async_trait;
+use axum::extract::FromRef;
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+use std::borrow::Cow;
 use std::path::Path;
+use rayon::prelude::*;
 
 /// HEIF/HEIC image processor
 /// Uses libheif-rs for HEIC decoding
@@ -124,21 +127,22 @@ impl MediaProcessor for HeifImageProcessor {
 
             // Take ownership of data once - avoid repeated cloning
             // This is the key optimization: clone once, use in both branches
-            let owned_data: Vec<u8> = interleaved.data.to_vec();
 
             // Create RgbaImage from raw data, handling stride padding if necessary
             // interleaved 数据是 4 通道 (R, G, B, A)，不是 3 通道
             let rgba_image = if stride == bytes_per_row {
                 // Data is tightly packed, can use directly without stride copying
-                image::RgbaImage::from_raw(width, height, owned_data)
+                image::RgbaImage::from_raw(width, height, interleaved.data.to_owned())
                     .ok_or_else(|| ProcessingError::Processing("Failed to create image from HEIC data".to_string()))?
             } else {
                 // Data has padding, need to copy row by row (remove padding)
-                let mut rgb_data = Vec::with_capacity(width as usize * height as usize * 4);
-                for row in 0..height as usize {
+                // KEY: parallel processing
+                let rgb_data: Vec<u8> = (0..height as usize).into_par_iter()
+                   .flat_map(|row| {
                     let row_offset = row * stride;
-                    rgb_data.extend_from_slice(&owned_data[row_offset..row_offset + bytes_per_row]);
-                }
+                    interleaved.data[row_offset..row_offset + bytes_per_row].to_owned()
+                }).collect();
+
                 image::RgbaImage::from_raw(width, height, rgb_data)
                     .ok_or_else(|| ProcessingError::Processing("Failed to create image from HEIC data".to_string()))?
             };
