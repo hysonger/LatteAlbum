@@ -145,7 +145,7 @@ impl MediaProcessor for HeifImageProcessor {
 
             // RGBA to RGB conversion (discard alpha channel)
             // JPEG encoder requires 3-channel RGB data
-            let rgb_image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8();
+            let rgb_image = image::DynamicImage::ImageRgba8(rgba_image);
 
             // Encode as JPEG
             let mut jpeg_bytes = Vec::new();
