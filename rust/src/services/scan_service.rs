@@ -131,8 +131,10 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
-            self.scan_state.set_phase(ScanPhase::Completed);
+            // 先发送 started 状态，确保前端能收到扫描开始的消息
             self.scan_state.started();
+            // 再设置完成状态
+            self.scan_state.set_phase(ScanPhase::Completed);
             self.scan_state.completed();
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
             return;
@@ -236,7 +238,10 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
+            // 发送 started 和 completed 状态，确保前端能收到消息
+            self.scan_state.started();
             self.scan_state.set_phase(ScanPhase::Completed);
+            self.scan_state.completed();
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
             return;
         }
@@ -291,12 +296,18 @@ impl ScanService {
 
         if !base_path.exists() {
             tracing::error!("Base path does not exist: {:?}", base_path);
-            return Ok(files);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Directory not found: {:?}", base_path)
+            ));
         }
 
         if !base_path.is_dir() {
             tracing::error!("Base path is not a directory: {:?}", base_path);
-            return Ok(files);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotADirectory,
+                format!("Not a directory: {:?}", base_path)
+            ));
         }
 
         // Supported extensions
