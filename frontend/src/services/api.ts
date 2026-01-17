@@ -60,7 +60,17 @@ export const fileApi = {
     })
   },
 
-  // 获取原始文件
+  // 获取缩略图URL（直接返回URL，无需下载）
+  getThumbnailUrl: (id: string, size: string = 'small'): string => {
+    return `/api/files/${id}/thumbnail?size=${size}`
+  },
+
+  // 获取原始文件URL（用于视频流式播放，直接返回URL）
+  getOriginalFileUrl: (id: string): string => {
+    return `/api/files/${id}/original`
+  },
+
+  // 获取原始文件（下载到blob）
   getOriginalFile: (id: string) => {
     return apiClient.get(`/files/${id}/original`, {
       responseType: 'blob'

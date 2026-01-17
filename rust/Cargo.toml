@@ -47,10 +47,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Utilities
 async-trait = "0.1"
+bytes = "1"
 futures = "0.3"
 futures-util = "0.3"
 mime_guess = "2"
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 # Scheduling
 tokio-cron-scheduler = "0.12"

@@ -308,14 +308,10 @@ const loadMedia = async () => {
         }
       }
     } else if (isVideo.value) {
-      // 视频保持原有逻辑（只用 large 作为 poster）
-      const thumbResponse = await fileApi.getThumbnail(currentFile.value.id, 'large')
-      const thumbBlob = new Blob([thumbResponse.data])
-      thumbnailUrl.value = URL.createObjectURL(thumbBlob)
-
-      const response = await fileApi.getOriginalFile(currentFile.value.id)
-      const blob = new Blob([response.data])
-      currentVideoUrl.value = URL.createObjectURL(blob)
+      // 视频使用流式播放，直接使用URL，无需下载到内存
+      // 后端支持 Range 请求，浏览器可以自动进行 seek 和流式播放
+      thumbnailUrl.value = fileApi.getThumbnailUrl(currentFile.value.id, 'large')
+      currentVideoUrl.value = fileApi.getOriginalFileUrl(currentFile.value.id)
     }
   } finally {
     isLoading.value = false

@@ -50,6 +50,32 @@ impl CacheService {
         None
     }
 
+    /// Get thumbnail disk cache path (for streaming)
+    /// Returns None if not in disk cache
+    pub fn get_thumbnail_disk_path(&self, file_id: &str, size: &str) -> Option<PathBuf> {
+        let cache_key = format!("{}_{}", file_id, size);
+        let disk_path = self.disk_cache_dir.join(&cache_key);
+        if disk_path.exists() {
+            Some(disk_path)
+        } else {
+            None
+        }
+    }
+
+    /// Check if thumbnail exists in cache (memory or disk)
+    pub async fn has_thumbnail(&self, file_id: &str, size: &str) -> bool {
+        let cache_key = format!("{}_{}", file_id, size);
+
+        // Check memory cache first
+        if self.memory_cache.get(&cache_key).await.is_some() {
+            return true;
+        }
+
+        // Check disk cache
+        let disk_path = self.disk_cache_dir.join(&cache_key);
+        disk_path.exists()
+    }
+
     /// Store thumbnail in cache
     pub async fn put_thumbnail(&self, file_id: &str, size: &str, data: &[u8]) -> std::io::Result<()> {
         let cache_key = format!("{}_{}", file_id, size);

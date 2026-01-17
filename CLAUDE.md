@@ -174,14 +174,42 @@ let rgb_image = DynamicImage::ImageRgba8(rgba_image).to_rgb8();
 
 **已知限制**: 部分 HEIC 文件的 EXIF 数据格式非标准，提取可能失败（记录在 debug 级别日志）
 
+#### 文件流式传输
+
+**视频流式播放** (`api/files.rs:get_original`):
+- 支持 HTTP Range 请求（206 Partial Content），实现边下载边播放
+- 支持 seek 拖动进度条（浏览器自动发送新的 Range 请求）
+- 大文件（>50MB）使用 `ReaderStream` 流式传输，避免一次性加载到内存
+- 返回 `Accept-Ranges: bytes` 头部告知浏览器支持范围请求
+
+**缩略图流式传输** (`api/files.rs:get_thumbnail`):
+采用三级缓存策略：
+| 层级 | 存储位置 | 响应方式 |
+|------|---------|---------|
+| L1 | 内存缓存 (Moka) | 直接返回数据（已在内存中） |
+| L2 | 磁盘缓存 | `File::open` + `ReaderStream` 流式传输 |
+| L3 | 动态生成 | 写入缓存后返回 |
+
+```rust
+// 磁盘缓存流式传输示例
+let file = File::open(&disk_path).await?;
+let stream = ReaderStream::with_capacity(file, 32 * 1024); // 32KB chunks
+Body::from_stream(stream)
+```
+
+**缓存服务方法** (`services/cache_service.rs`):
+- `get_thumbnail()` - 获取缩略图（自动检查内存+磁盘缓存）
+- `get_thumbnail_disk_path()` - 获取磁盘缓存路径（用于流式传输）
+- `has_thumbnail()` - 检查缓存是否存在
+
 ### API Endpoints
 
 **File Operations**:
 - `GET /api/files` - List with pagination, sorting, filtering
 - `GET /api/files/dates` - Get dates with photos
 - `GET /api/files/{id}` - File details
-- `GET /api/files/{id}/thumbnail?size={small|medium|large|full}` - Thumbnail stream
-- `GET /api/files/{id}/original` - Original file stream (download only)
+- `GET /api/files/{id}/thumbnail?size={small|medium|large|full}` - Thumbnail stream (supports streaming from disk cache)
+- `GET /api/files/{id}/original` - Original file stream with Range support (for video streaming)
 - `GET /api/files/{id}/neighbors` - Prev/next for navigation
 - `GET /api/directories` - Directory tree
 
@@ -523,6 +551,7 @@ Enabled when `LATTE_SCAN_PARALLEL=false`. Processes files one-by-one with indivi
 | Image | image crate 0.25, libheif-rs 2.5 |
 | Video | ffmpeg-next (optional, feature `video-processing`) |
 | Cache | Moka 0.12 |
+| Streaming | bytes 1, tokio-util 0.7 (for `ReaderStream`) |
 | Scheduling | tokio-cron-scheduler |
 | EXIF | kamadak-exif |
 

@@ -1479,6 +1479,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "bytes",
  "chrono",
  "dotenvy",
  "exif",
@@ -1499,6 +1500,7 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
