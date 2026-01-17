@@ -1,21 +1,37 @@
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::ProcessorRegistry;
-use crate::services::CacheService;
+use crate::services::{CacheService, TranscodingPool};
+use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
 /// Service for file operations
+#[derive(Clone)]
 pub struct FileService {
     db: DatabasePool,
     cache: Arc<CacheService>,
     processors: Arc<ProcessorRegistry>,
+    transcoding_pool: Arc<TranscodingPool>,
 }
 
 impl FileService {
-    pub fn new(db: DatabasePool, cache: Arc<CacheService>, processors: Arc<ProcessorRegistry>) -> Self {
-        Self { db, cache, processors }
+    pub fn new(
+        db: DatabasePool,
+        cache: Arc<CacheService>,
+        processors: Arc<ProcessorRegistry>,
+        transcoding_pool: Arc<TranscodingPool>,
+    ) -> Self {
+        Self {
+            db,
+            cache,
+            processors,
+            transcoding_pool,
+        }
     }
+}
 
+/// Service for file operations - methods
+impl FileService {
     /// Get thumbnail for a file
     /// For "full" size (target_width == 0), browser-native formats are served directly without transcoding
     /// (JPEG, PNG, GIF, WebP, AVIF, SVG). Other formats like HEIC/HEIF will be transcoded.
@@ -67,7 +83,7 @@ impl FileService {
                         }
                     }
 
-                    // Find appropriate processor
+                    // Generate thumbnail using processor (which uses transcoding_pool internally)
                     if let Some(processor) = self.processors.find_processor(path) {
                         match processor.generate_thumbnail(path, target_width, 0.9).await {
                             Ok(Some(thumbnail_data)) => {
@@ -82,8 +98,6 @@ impl FileService {
                                 debug!("Failed to generate thumbnail for {}: {}", file_id, e);
                             }
                         }
-                    } else {
-                        debug!("No processor found for file: {}", file_id);
                     }
                 } else {
                     debug!("File not found: {}", file.file_path);

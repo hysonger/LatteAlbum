@@ -2,7 +2,7 @@ use crate::api::{files, directories, system};
 use crate::config::Config;
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::{ProcessorRegistry, image_processor::StandardImageProcessor, heif_processor::HeifImageProcessor, video_processor::VideoProcessor};
-use crate::services::{FileService, ScanService, CacheService, Scheduler};
+use crate::services::{FileService, ScanService, CacheService, Scheduler, TranscodingPool};
 use crate::websocket::{ScanProgressBroadcaster, ScanStateManager};
 use axum::{
     body::Body,
@@ -53,10 +53,13 @@ impl App {
         let scan_state = Arc::new(ScanStateManager::new(broadcaster.sender()));
         let cache_service = Arc::new(CacheService::new(&config.cache_dir).await?);
 
-        // Initialize processor registry
-        let mut processors = ProcessorRegistry::new();
-        // HEIF support uses image crate's built-in HEIF support
-        processors.register(Arc::new(HeifImageProcessor::new()));
+        // Create transcoding pool for CPU-intensive image processing (MUST be created before processors)
+        let transcoding_pool = Arc::new(TranscodingPool::new(4));
+
+        // Initialize processor registry with transcoding pool
+        let mut processors = ProcessorRegistry::new(Some(transcoding_pool.clone()));
+
+        processors.register(Arc::new(HeifImageProcessor::new(Some(transcoding_pool.clone()))));
         processors.register(Arc::new(StandardImageProcessor::new()));
         processors.register(Arc::new(VideoProcessor::new(Some(config.ffmpeg_path.to_string_lossy().to_string()))));
         let processors = Arc::new(processors);
@@ -72,6 +75,7 @@ impl App {
             db.clone(),
             cache_service.clone(),
             processors.clone(),
+            transcoding_pool.clone(),
         ));
 
         let state = AppState {

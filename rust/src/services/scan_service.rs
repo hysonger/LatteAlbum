@@ -495,22 +495,31 @@ impl ScanService {
     }
 
     /// Extract metadata for a single file
+    /// Uses spawn_blocking for synchronous file metadata extraction to avoid blocking async runtime
     async fn extract_single_metadata(
         path: &Path,
         processors: &ProcessorRegistry,
     ) -> Result<MediaFile, Box<dyn std::error::Error>> {
-        let processor = processors.find_processor(path).ok_or_else(|| {
+        let path_buf = path.to_path_buf();
+        let processors = processors.clone();
+
+        // Clone for spawn_blocking (since path_buf is moved into the closure)
+        let path_for_blocking = path_buf.clone();
+        // Run synchronous file metadata extraction in blocking thread pool
+        let file_metadata = tokio::task::spawn_blocking(move || {
+            crate::processors::file_metadata::extract_file_metadata(&path_for_blocking)
+        }).await
+        .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+        // Extract format-specific metadata (async, may contain internal blocking operations)
+        let processor = processors.find_processor(&path_buf).ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::Unsupported, "No processor found")
         })?;
 
-        // Extract file metadata (format-independent)
-        let file_metadata = crate::processors::file_metadata::extract_file_metadata(path);
-
-        // Extract format-specific metadata
-        let format_metadata = processor.process(path).await?;
+        let format_metadata = processor.process(&path_buf).await?;
 
         // Create media file
-        let file_name = path.file_name()
+        let file_name = path_buf.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
@@ -522,7 +531,7 @@ impl ScanService {
         };
 
         let mut media_file = MediaFile::new(
-            path.to_string_lossy().to_string(),
+            path_buf.to_string_lossy().to_string(),
             file_name,
             file_type.to_string(),
         );

@@ -4,6 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::services::TranscodingPool;
+
 /// Media type enumeration
 #[derive(Debug, Clone, PartialEq)]
 pub enum MediaType {
@@ -81,16 +83,18 @@ pub trait MediaProcessor: Send + Sync {
 }
 
 /// Registry for managing media processors
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProcessorRegistry {
     processors: Vec<Arc<dyn MediaProcessor>>,
+    transcoding_pool: Option<Arc<TranscodingPool>>,
 }
 
 impl ProcessorRegistry {
-    /// Create a new empty registry
-    pub fn new() -> Self {
+    /// Create a new registry with optional transcoding pool
+    pub fn new(transcoding_pool: Option<Arc<TranscodingPool>>) -> Self {
         Self {
             processors: Vec::new(),
+            transcoding_pool,
         }
     }
 
@@ -107,6 +111,11 @@ impl ProcessorRegistry {
             .iter()
             .find(|p| p.supports(path))
             .cloned()
+    }
+
+    /// Get transcoding pool reference
+    pub fn transcoding_pool(&self) -> Option<&Arc<TranscodingPool>> {
+        self.transcoding_pool.as_ref()
     }
 }
 
