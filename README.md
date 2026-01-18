@@ -34,14 +34,22 @@ TODO：视频缩略图
 ### 开发构建与运行
 
 ```bash
-# 运行后端（在 rust/ 目录下）
+# 运行后端
+cd rust
+# 如果系统上已经正确安装了依赖库
 cargo run
+# 如果系统上依赖库版本太旧，满足不了libheif-rs等的需要，可以从vendor目录中编译
+# 注意，这并不会自动处理依赖库的依赖库，您可能需要自行补全库以及libheif的特性开关
+./cargo-with-vendor.sh run
 
 # 前端（另开终端）
 cd frontend
 npm install
 npm run dev     # 开发服务器（端口 3000）
 npm run build   # 生产构建
+
+# 打包
+./package.sh
 ```
 
 ## 配置项

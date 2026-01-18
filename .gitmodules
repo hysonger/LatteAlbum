@@ -1,0 +1,4 @@
+[submodule "rust/vendor/libheif"]
+	path = rust/vendor/libheif
+	url = https://github.com/strukturag/libheif
+	tag = v1.21.2

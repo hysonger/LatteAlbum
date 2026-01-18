@@ -8,6 +8,8 @@ authors = ["Latte Album"]
 [features]
 default = []
 video-processing = ["ffmpeg-next"]
+# Build from project's vendor directory instead of using system libraries
+vendor-build = ["dep:cmake"]
 
 [dependencies]
 # Web framework
@@ -68,13 +70,18 @@ tokio-cron-scheduler = "0.12"
 #exif = { path = "vendor/exif-rs" }
 exif = { git = "https://github.com/kamadak/exif-rs", rev = "7cb491c" }
 
-libheif-rs = { version = "2.5.2", features = ["image"] }
+libheif-rs = { version = "2.6.1", default-features = false, features = ["v1_17"] }
 
 # Example-only dependencies (used by bench_transcode_formats.rs)
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tokio-test = "0.4"
 webp = "0.3"
+
+[build-dependencies]
+pkg-config = "0.3"
+cc = "1.0"
+cmake = { version = "0.1", optional = true }
 
 [profile.release]
 opt-level = 3

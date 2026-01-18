@@ -403,6 +403,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1480,7 +1489,9 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
+ "cc",
  "chrono",
+ "cmake",
  "dotenvy",
  "exif",
  "ffmpeg-next",
@@ -1491,6 +1502,7 @@ dependencies = [
  "libheif-rs",
  "mime_guess",
  "moka",
+ "pkg-config",
  "rayon",
  "rayon-core",
  "reqwest",
@@ -1545,23 +1557,22 @@ dependencies = [
 
 [[package]]
 name = "libheif-rs"
-version = "2.6.0"
+version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "519e8d16daedc521d676d1c2de5dd9f92febf8a1d35155286f86219fea10086c"
+checksum = "5de2912bca071d0f609cd6cb8d348c475439f69e808726374bea9e079591559e"
 dependencies = [
  "cfg-if",
  "enumn",
  "four-cc",
- "image",
  "libc",
  "libheif-sys",
 ]
 
 [[package]]
 name = "libheif-sys"
-version = "5.1.0+1.21.1"
+version = "5.1.1+1.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e446c2d8e79b1d02e0c87d2194cc26bc4dfb09be649e1ce897e741eb68dcdad8"
+checksum = "03b69722f9386e24ae14655f8faddff28cb6a9a5511d7ffdde3a4499b51cca07"
 dependencies = [
  "cfg-if",
  "libc",
