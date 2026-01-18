@@ -631,19 +631,18 @@ defineExpose({
   margin-bottom: 16px;
 }
 
-.download-btn {
-  background: #4CAF50;
-  color: white;
-  border: none;
-  padding: 10px 20px;
+.error-content .download-btn {
+  display: inline-block;
+  min-width: 100px;
+  text-align: center;
+  width: auto;
+  height: auto;
+  padding: 8px 12px;
   border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 500;
-  transition: background 0.2s;
+  margin-top: 8px;
 }
 
-.download-btn:hover {
+.error-content .download-btn:hover {
   background: #45a049;
 }
 
