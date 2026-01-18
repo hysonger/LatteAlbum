@@ -13,7 +13,7 @@ export const useGalleryStore = defineStore('gallery', () => {
   const sortOrder = ref('desc')
   const filterType = ref('all')
   const currentPath = ref('')
-  const pageSize = ref(50)
+  const pageSize = ref(100)
   const showDateResults = ref(false)
   const dateResults = ref<MediaFile[]>([])
 
@@ -69,6 +69,10 @@ export const useGalleryStore = defineStore('gallery', () => {
   
   async function refresh() {
     await loadPage(0)
+    // 派发布局变化事件，确保懒加载正常工作
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gallery-layout-changed'))
+    }
   }
   
   function reset() {
