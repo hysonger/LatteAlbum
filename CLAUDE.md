@@ -1077,3 +1077,20 @@ Remember, just starting developing the code without reading the documentation ma
   - DO NOT COMMIT ALL the files. Only commit the files modified in the current conversation.
   - When doing major changes, ONLY commit when I comfirm the program works successfully as expected.
   - The commit message should be clear and concise, in several lines of human-style sentences.
+
+## Known Issues
+
+### iPhone mov 视频 Seek 失败
+
+**问题描述**：
+- iPhone 拍摄的 mov 格式视频，点击进度条跳转到中间/末尾位置时会出现"视频播放失败"错误
+- mp4 格式视频正常
+
+**根本原因**：
+- iPhone mov 文件的 moov atom 位于文件末尾（这是 HEVC/H.265 编码的常见做法）
+- 使用 HTTP Range 请求进行流式播放时，seek 到中间/末尾返回的数据不包含 moov 元数据
+- 浏览器无法解码，返回 `MEDIA_ERR_SRC_NOT_SUPPORTED` 错误
+
+**后续修复方向**：
+- 为 mov 格式使用完整文件请求（而非 Range 请求）
+- 或在服务端检测 moov atom 位置，确保返回包含 moov 的数据
