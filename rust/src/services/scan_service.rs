@@ -650,7 +650,7 @@ impl ScanService {
             for r in chunk {
                 if r.success.is_none() {
                     failure_count += 1;
-                    tracing::debug!("Failed to process {}: {}", r.path.display(), r.error.clone().unwrap_or_default());
+                    tracing::warn!("Failed to process {}: {}", r.path.display(), r.error.clone().unwrap_or_default());
                 }
             }
 

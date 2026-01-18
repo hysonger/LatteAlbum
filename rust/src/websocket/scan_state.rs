@@ -152,8 +152,6 @@ impl ScanStateManager {
                             files_to_delete: current_state.files_to_delete,
                             start_time: current_state.start_time.clone(),
                         };
-                        tracing::debug!("[ScanStateManager] 发送进度消息: phase={}, status={}, total={}",
-                            phase_str, msg.status, msg.total_files);
                         let _ = tx_clone.send(msg);
                         last_progress_reported = processed;
                     }

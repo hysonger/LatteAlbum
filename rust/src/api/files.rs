@@ -13,6 +13,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
+use tracing::warn;
 use tokio_util::io::ReaderStream;
 
 /// Get size label from target width
@@ -101,14 +102,20 @@ pub async fn list_files(
         )
         .await {
         Ok(files) => files,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to query files: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
     };
 
     let total = match repo
         .count(params.path.as_deref(), params.filter_type.as_deref())
         .await {
         Ok(total) => total,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to count files: {}", e);
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
     };
 
     let total_pages = ((total as f64) / (size as f64)).ceil() as i32;
@@ -132,7 +139,10 @@ pub async fn get_file(
     match repo.find_by_id(&id).await {
         Ok(Some(file)) => Json(file).into_response(),
         Ok(None) => (axum::http::StatusCode::NOT_FOUND, "File not found").into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to get file {}: {}", id, e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -237,7 +247,10 @@ pub async fn get_thumbnail(
             response
         }
         Ok(None) => (StatusCode::NOT_FOUND, "Thumbnail not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to get thumbnail for {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -311,11 +324,15 @@ pub async fn get_original(
                             // Open file and seek to start position
                             let mut file = match File::open(path).await {
                                 Ok(f) => f,
-                                Err(_) => return (StatusCode::NOT_FOUND, "Cannot open file").into_response(),
+                                Err(e) => {
+                                    warn!("Failed to open file {}: {}", path.display(), e);
+                                    return (StatusCode::NOT_FOUND, "Cannot open file").into_response();
+                                }
                             };
 
                             if start > 0 {
-                                if let Err(_) = file.seek(SeekFrom::Start(start)).await {
+                                if let Err(e) = file.seek(SeekFrom::Start(start)).await {
+                                    warn!("Failed to seek in file {}: {}", path.display(), e);
                                     return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed").into_response();
                                 }
                             }
@@ -341,7 +358,10 @@ pub async fn get_original(
                 // Large file (video) - stream it
                 let file = match File::open(path).await {
                     Ok(f) => f,
-                    Err(_) => return (StatusCode::NOT_FOUND, "Cannot open file").into_response(),
+                    Err(e) => {
+                        warn!("Failed to open large file {}: {}", path.display(), e);
+                        return (StatusCode::NOT_FOUND, "Cannot open file").into_response();
+                    }
                 };
                 let stream = ReaderStream::with_capacity(file, 64 * 1024 * 1024);
 
@@ -362,12 +382,18 @@ pub async fn get_original(
 
                         (StatusCode::OK, headers, data).into_response()
                     }
-                    Err(_) => (StatusCode::NOT_FOUND, "Cannot read file").into_response(),
+                    Err(e) => {
+                        warn!("Failed to read file {}: {}", path.display(), e);
+                        (StatusCode::NOT_FOUND, "Cannot read file").into_response()
+                    }
                 }
             }
         }
         Ok(None) => (StatusCode::NOT_FOUND, "File not found").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to get original file {}: {}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -383,7 +409,10 @@ pub async fn list_dates(
         .await
     {
         Ok(dates) => Json(dates).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to query dates: {}", e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -410,6 +439,9 @@ pub async fn get_neighbors(
             Json(response).into_response()
         }
         Ok(None) => (axum::http::StatusCode::NOT_FOUND, "File not found").into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            warn!("Failed to get neighbors for {}: {}", id, e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }

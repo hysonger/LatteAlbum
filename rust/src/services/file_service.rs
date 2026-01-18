@@ -3,7 +3,7 @@ use crate::processors::ProcessorRegistry;
 use crate::services::CacheService;
 use bytes::Bytes;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Service for file operations
 #[derive(Clone)]
@@ -96,7 +96,7 @@ impl FileService {
                                 debug!("Processor returned no thumbnail for {}", file_id);
                             }
                             Err(e) => {
-                                debug!("Failed to generate thumbnail for {}: {}", file_id, e);
+                                warn!("Failed to generate thumbnail for {}: {}", file_id, e);
                             }
                         }
                     }
@@ -108,7 +108,7 @@ impl FileService {
                 debug!("File not found in database: {}", file_id);
             }
             Err(e) => {
-                debug!("Database error when looking up file {}: {}", file_id, e);
+                warn!("Database error when looking up file {}: {}", file_id, e);
             }
         }
 

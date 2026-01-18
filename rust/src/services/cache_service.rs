@@ -36,14 +36,12 @@ impl CacheService {
 
         // 1. Check memory cache - Bytes supports cheap cloning
         if let Some(data) = self.memory_cache.get(&cache_key).await {
-            tracing::debug!("L1 cache hit for {}", cache_key);
             return Some(data);
         }
 
         // 2. Check disk cache
         let disk_path = self.disk_cache_dir.join(&cache_key);
         if let Ok(data) = fs::read(&disk_path).await {
-            tracing::debug!("L2 cache hit for {}", cache_key);
             // Convert to Bytes - cheap clone for memory cache insertion
             let bytes = Bytes::from(data);
             // Clone for memory cache (Bytes clone is O(1))
