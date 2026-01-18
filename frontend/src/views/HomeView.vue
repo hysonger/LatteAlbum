@@ -340,7 +340,7 @@ const handleLoadMore = () => {
 // isRefreshing 已移除，使用 scanProgressData?.status === 'progress' 判断
 const refreshStatus = ref<'default' | 'refreshing' | 'success' | 'error'>('default')
 const scanProgressData = ref<{
-  status: 'progress' | 'completed' | 'error' | 'idle'
+  status: 'progress' | 'completed' | 'error' | 'idle' | 'cancelled'
   phase?: string
   totalFiles: number
   successCount: number
@@ -362,9 +362,10 @@ const showScanPopup = ref(false)
 const scanPopupRef = ref<HTMLElement | null>(null)
 
 // 可靠的是否正在扫描状态（无论是否已收到 WebSocket 消息）
+// 只在 progress 状态时显示进度圆环，completed/error/cancelled 时立即消失
 const isScanning = computed(() => {
   const status = scanProgressData.value?.status
-  return status === 'progress' || status === 'completed' || status === 'error'
+  return status === 'progress'
 })
 
 // 其他状态
@@ -511,10 +512,14 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       break
 
     case 'cancelled':
+      // 立即隐藏弹窗和进度圆环
+      showScanPopup.value = false
       refreshStatus.value = 'default'
       if (scanProgressData.value) {
         scanProgressData.value.status = 'idle'
       }
+      // 刷新照片流以显示已保存的文件
+      galleryStore.refresh()
       break
   }
 }

@@ -516,6 +516,52 @@ scan_service (business logic)
 - `files_to_add/update/delete` set once and preserved throughout scan
 - `to_progress_message()` provides current state via HTTP API without broadcast channel
 
+### Scan Cancellation Behavior
+
+**Cancel Flow** (`scan_service.rs`):
+
+When a scan is cancelled, the following behavior occurs:
+
+| Phase | Cancel Action |
+|-------|---------------|
+| Collecting | Stops file collection, returns early |
+| Counting | Stops batch check, proceeds with collected data |
+| Processing | Saves processed files, then cancels |
+| Writing | Finishes current batch, saves partial results, skips remaining |
+| Deleting | Skips delete phase entirely |
+
+**Backend Cancel Logic**:
+
+1. **Serial Mode** (`process_serial`):
+   - Detects cancel flag in loop
+   - Calls `save_partial_results()` to persist processed files
+   - Updates `last_scanned` for unprocessed files via `batch_touch()`
+   - Calls `scan_state.cancelled()`
+
+2. **Parallel Mode** (`perform_scan_parallel`):
+   - `batch_write_results_with_skip()` detects cancel during batch processing
+   - Returns `true` to indicate cancellation
+   - Caller checks return value and `is_cancelled` flag
+   - Calls `scan_state.cancelled()` instead of `completed()`
+
+**Frontend Cancel Handling**:
+
+| State | Progress Ring | Refresh Icon | Popup |
+|-------|---------------|--------------|-------|
+| `progress` | Visible | Spinning | Visible on toggle |
+| `completed` | Hidden | Checkmark | Hidden |
+| `error` | Hidden | X mark | Hidden |
+| `cancelled` | Hidden | Default (sync icon) | Hidden immediately |
+
+```typescript
+// Frontend status handling
+case 'cancelled':
+  showScanPopup.value = false  // Immediately hide popup
+  refreshStatus.value = 'default'
+  scanProgressData.value.status = 'idle'
+  break
+```
+
 ### WebSocket Progress Broadcast
 
 **Message Structure** (`websocket/broadcast.rs`):

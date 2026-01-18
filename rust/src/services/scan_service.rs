@@ -187,18 +187,38 @@ impl ScanService {
 
             // Phase 4: Batch upsert results + update skip_list last_scanned
             self.scan_state.set_phase(ScanPhase::Writing);
-            self.batch_write_results_with_skip(results, &skip_list, total).await;
+            let writing_cancelled = self.batch_write_results_with_skip(results, &skip_list, total).await;
             let write_duration = process_start.elapsed();
             tracing::debug!("Phase 4 (writing): completed in {:?}", write_duration);
+
+            // Check if writing was cancelled
+            if writing_cancelled || self.is_cancelled.load(Ordering::SeqCst) {
+                // 执行删除阶段（但删除操作内部会检查取消标志）
+                self.scan_state.set_phase(ScanPhase::Deleting);
+                self.delete_missing(&files).await;
+                // 发送取消状态
+                self.scan_state.cancelled();
+                tracing::info!("Parallel scan cancelled after writing {} files", success_results);
+                return;
+            }
         } else {
             // All files unchanged - just update last_scanned for all
             self.scan_state.set_phase(ScanPhase::Writing);
             self.scan_state.set_file_counts(0, 0, files_to_delete);
 
             let write_start = Instant::now();
-            self.batch_write_results_with_skip(Vec::new(), &skip_list, total).await;
+            let writing_cancelled = self.batch_write_results_with_skip(Vec::new(), &skip_list, total).await;
             let write_duration = write_start.elapsed();
             tracing::debug!("Phase 4 (updating): {} files touched in {:?}", skip_list.len(), write_duration);
+
+            // Check if writing was cancelled
+            if writing_cancelled || self.is_cancelled.load(Ordering::SeqCst) {
+                self.scan_state.set_phase(ScanPhase::Deleting);
+                self.delete_missing(&files).await;
+                self.scan_state.cancelled();
+                tracing::info!("Parallel scan cancelled during touch phase");
+                return;
+            }
         }
 
         // Phase 5: Clean up missing files
@@ -268,6 +288,14 @@ impl ScanService {
         if processing_count > 0 {
             // Process files that need metadata extraction
             self.process_serial(&files).await;
+            // 检查是否在处理过程中被取消（process_serial 内部会调用 cancelled()）
+            if self.is_cancelled.load(Ordering::SeqCst) {
+                // 删除阶段会检查取消标志，这里仍然执行删除
+                self.scan_state.set_phase(ScanPhase::Deleting);
+                self.delete_missing(&files).await;
+                tracing::info!("Serial scan cancelled");
+                return;
+            }
         } else {
             // All files unchanged - just touch them in batch
             let repo = MediaFileRepository::new(&self.db);
@@ -432,13 +460,11 @@ impl ScanService {
     async fn parallel_extract_metadata(&self, files: &[PathBuf]) -> Vec<ProcessingResult> {
         let concurrency = self.get_concurrency();
         let semaphore = Arc::new(Semaphore::new(concurrency));
-        let results: Arc<Mutex<Vec<ProcessingResult>>> = Arc::new(Mutex::new(Vec::new()));
 
         // Clone files to owned Vec for 'static lifetime
         let files_owned: Vec<PathBuf> = files.to_vec();
         let processors = self.processors.clone();
         let is_cancelled = self.is_cancelled.clone();
-        let results_inner = results.clone();
         let scan_state = self.scan_state.clone();
 
         // Use scoped spawn to avoid 'static lifetime requirement
@@ -449,53 +475,47 @@ impl ScanService {
             let path = path.clone();
             let processors = processors.clone();
             let is_cancelled = is_cancelled.clone();
-            let results = results_inner.clone();
             let scan_state = scan_state.clone();
 
             handles.push(tokio::spawn(async move {
                 let _permit = permit.await;
 
-                let result = if is_cancelled.load(Ordering::SeqCst) {
-                    ProcessingResult {
-                        path,
-                        success: None,
-                        error: Some("Cancelled".to_string()),
-                    }
-                } else {
-                    match Self::extract_single_metadata(&path, &processors).await {
-                        Ok(media_file) => ProcessingResult {
+                // Check if cancelled before processing
+                if is_cancelled.load(Ordering::SeqCst) {
+                    // Return None for cancelled files - they won't be counted
+                    return None;
+                }
+
+                // Process the file
+                match Self::extract_single_metadata(&path, &processors).await {
+                    Ok(media_file) => {
+                        scan_state.increment_success();
+                        Some(ProcessingResult {
                             path,
                             success: Some(media_file),
                             error: None,
-                        },
-                        Err(e) => ProcessingResult {
+                        })
+                    },
+                    Err(e) => {
+                        scan_state.increment_failure();
+                        Some(ProcessingResult {
                             path,
                             success: None,
                             error: Some(e.to_string()),
-                        },
-                    }
-                };
-
-                // Report result to scan_state for ordered progress updates
-                if result.success.is_some() {
-                    scan_state.increment_success();
-                } else {
-                    scan_state.increment_failure();
+                        })
+                    },
                 }
-
-                result
             }));
         }
 
         // Wait for all tasks to complete
         let mut all_results = Vec::with_capacity(handles.len());
         for handle in handles {
-            let result = handle.await.unwrap_or_else(|_| ProcessingResult {
-                path: PathBuf::new(),
-                success: None,
-                error: Some("Task failed".to_string()),
-            });
-            all_results.push(result);
+            match handle.await {
+                Ok(Some(result)) => all_results.push(result),
+                // Cancelled tasks or panics are ignored (not counted as failures)
+                _ => {}
+            }
         }
 
         // Sort results to maintain order
@@ -615,23 +635,24 @@ impl ScanService {
     }
 
     /// Batch write results to database and update last_scanned for unchanged files
+    /// Returns true if the write was cancelled mid-way
     async fn batch_write_results_with_skip(
         &self,
         results: Vec<ProcessingResult>,
         skip_list: &[PathBuf],
         total: u64
-    ) {
+    ) -> bool {
         const BATCH_SIZE: usize = 100;
         let repo = MediaFileRepository::new(&self.db);
 
         let mut success_count = 0u64;
         let mut failure_count = 0u64;
+        let mut cancelled = false;
 
         // Write processed files
         for chunk in results.chunks(BATCH_SIZE) {
-            if self.is_cancelled.load(Ordering::SeqCst) {
-                break;
-            }
+            // 检查是否需要取消，但先完成当前批次的处理
+            let should_cancel = self.is_cancelled.load(Ordering::SeqCst);
 
             let files: Vec<MediaFile> = chunk.iter()
                 .filter_map(|r| r.success.clone())
@@ -658,14 +679,24 @@ impl ScanService {
 
             self.success_count.store(success_count, Ordering::SeqCst);
             self.failure_count.store(failure_count, Ordering::SeqCst);
+
+            // 在完成当前批次后，如果检测到取消，则退出
+            if should_cancel {
+                cancelled = true;
+                tracing::info!("Scan cancelled during writing, saved {} files so far", success_count);
+                break;
+            }
         }
 
         // Update last_scanned for unchanged files (batch touch)
-        if !skip_list.is_empty() && !self.is_cancelled.load(Ordering::SeqCst) {
+        // Even if cancelled, we still update skip_list for files that weren't processed
+        if !skip_list.is_empty() && !cancelled {
             if let Err(e) = repo.batch_touch(skip_list).await {
                 tracing::error!("Batch touch failed: {}", e);
             }
         }
+
+        cancelled
     }
 
     /// Calculate changes (serial fallback - uses DB per file)
@@ -693,18 +724,114 @@ impl ScanService {
     /// Process files serially (fallback mode)
     async fn process_serial(&self, files: &[PathBuf]) {
         let total = files.len() as u64;
+        let mut results: Vec<ProcessingResult> = Vec::with_capacity(total as usize);
 
         for (index, file) in files.iter().enumerate() {
             if self.is_cancelled.load(Ordering::SeqCst) {
+                // 保存已处理的文件后再发送取消状态
+                self.save_partial_results(&results, files).await;
                 self.scan_state.cancelled();
                 return;
             }
 
-            if let Err(e) = self.process_file(file).await {
-                tracing::error!("Failed to process {}: {}", file.display(), e);
-                self.failure_count.fetch_add(1, Ordering::SeqCst);
-            } else {
-                self.success_count.fetch_add(1, Ordering::SeqCst);
+            match self.process_file_to_result(file).await {
+                Ok(result) => {
+                    results.push(result);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to process {}: {}", file.display(), e);
+                    self.failure_count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+    }
+
+    /// Process single file and return ProcessingResult
+    async fn process_file_to_result(&self, path: &Path) -> Result<ProcessingResult, Box<dyn std::error::Error>> {
+        let processor = self.processors.find_processor(path).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Unsupported, "No processor found")
+        })?;
+
+        let file_metadata = crate::processors::file_metadata::extract_file_metadata(path);
+        let format_metadata = processor.process(path).await?;
+
+        let file_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let file_type = if processor.media_type() == crate::processors::MediaType::Video {
+            "video"
+        } else {
+            "image"
+        };
+
+        let mut media_file = MediaFile::new(
+            path.to_string_lossy().to_string(),
+            file_name,
+            file_type.to_string(),
+        );
+
+        media_file.file_size = file_metadata.file_size;
+        media_file.create_time = file_metadata.create_time;
+        media_file.modify_time = file_metadata.modify_time;
+        media_file.mime_type = format_metadata.mime_type;
+        media_file.width = format_metadata.width;
+        media_file.height = format_metadata.height;
+        media_file.exif_timestamp = format_metadata.exif_timestamp;
+        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset;
+        media_file.camera_make = format_metadata.camera_make;
+        media_file.camera_model = format_metadata.camera_model;
+        media_file.lens_model = format_metadata.lens_model;
+        media_file.exposure_time = format_metadata.exposure_time;
+        media_file.aperture = format_metadata.aperture;
+        media_file.iso = format_metadata.iso;
+        media_file.focal_length = format_metadata.focal_length;
+        media_file.duration = format_metadata.duration;
+        media_file.video_codec = format_metadata.video_codec;
+
+        Ok(ProcessingResult {
+            path: path.to_path_buf(),
+            success: Some(media_file),
+            error: None,
+        })
+    }
+
+    /// Save partial results when scan is cancelled
+    /// 保存已处理的文件到数据库，用于取消时保留已处理的数据
+    async fn save_partial_results(&self, results: &[ProcessingResult], all_files: &[PathBuf]) {
+        let repo = MediaFileRepository::new(&self.db);
+
+        // 保存已处理成功的文件
+        let success_files: Vec<MediaFile> = results.iter()
+            .filter_map(|r| r.success.clone())
+            .collect();
+
+        if !success_files.is_empty() {
+            match repo.batch_upsert(&success_files).await {
+                Ok(_) => {
+                    tracing::info!("Cancelled scan: saved {} processed files", success_files.len());
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upsert partial results on cancel: {}", e);
+                }
+            }
+        }
+
+        // 更新 skip_list 中文件的 last_scanned（未被处理的文件）
+        use std::collections::HashSet;
+        let processed_paths: HashSet<String> = results.iter()
+            .filter_map(|r| r.success.as_ref().map(|f| f.file_path.clone()))
+            .collect();
+
+        let skip_list: Vec<PathBuf> = all_files.iter()
+            .filter(|p| !processed_paths.contains(&p.to_string_lossy().to_string()))
+            .cloned()
+            .collect();
+
+        if !skip_list.is_empty() {
+            if let Err(e) = repo.batch_touch(&skip_list).await {
+                tracing::error!("Failed to touch skip list on cancel: {}", e);
             }
         }
     }
@@ -759,6 +886,12 @@ impl ScanService {
     }
 
     async fn delete_missing(&self, existing_files: &[PathBuf]) {
+        // 检查是否已取消
+        if self.is_cancelled.load(Ordering::SeqCst) {
+            tracing::debug!("Skipping delete phase - scan was cancelled");
+            return;
+        }
+
         let repo = MediaFileRepository::new(&self.db);
         let existing_paths: Vec<String> = existing_files
             .iter()
