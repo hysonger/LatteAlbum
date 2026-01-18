@@ -187,33 +187,31 @@ const hasNext = computed(() => currentIndex.value < props.neighbors.length - 1)
 
 // 格式化日期
 const formatDate = (dateString: string, timezoneOffset?: string) => {
+  // 直接解析时间字符串（不进行时区转换）
   const date = new Date(dateString)
-  
+
   if (!timezoneOffset) {
-    // 未知时区，显示为UTC时间
+    // 无时区信息：直接显示时间
     return `${date.toLocaleString('zh-CN')}`
   }
-  
+
   // 解析时区偏移量（如"+08:00"）
   const offsetHours = parseInt(timezoneOffset.substring(1, 3))
   const offsetMinutes = parseInt(timezoneOffset.substring(4, 6))
   const offsetSign = timezoneOffset[0] === '+' ? 1 : -1
   const totalOffsetMinutes = offsetSign * (offsetHours * 60 + offsetMinutes)
-  
-  // 计算原始时区的本地时间
-  const originalDate = new Date(date.getTime() + totalOffsetMinutes * 60000)
-  
+
   // 检查是否与用户本地时区一致
   const userOffset = date.getTimezoneOffset()
   const isSameTimezone = userOffset === -totalOffsetMinutes
-  
+
   if (isSameTimezone) {
-    // 与用户时区一致，正常显示
-    return originalDate.toLocaleString('zh-CN')
+    // 时区一致：直接显示时间
+    return date.toLocaleString('zh-CN')
   } else {
-    // 时区不同，显示原始时区时间并标注
+    // 时区不同：显示时间并标注照片时区
     const timezoneLabel = `UTC${timezoneOffset}`
-    return `${originalDate.toLocaleString('zh-CN')} (${timezoneLabel})`
+    return `${date.toLocaleString('zh-CN')} (${timezoneLabel})`
   }
 }
 

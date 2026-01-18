@@ -1094,3 +1094,42 @@ Remember, just starting developing the code without reading the documentation ma
 **后续修复方向**：
 - 为 mov 格式使用完整文件请求（而非 Range 请求）
 - 或在服务端检测 moov atom 位置，确保返回包含 moov 的数据
+
+### 时区处理策略
+
+**设计原则**：
+1. **前端显示**：直接显示时间字面量，不进行时区转换
+2. **后端排序**：使用时间字面量排序（不转换为 UTC）
+3. **时区提示**：仅当照片时区与用户本地时区不同时，在时间后添加照片拍摄时区标签
+
+**实现方式** (`PhotoViewer.vue:formatDate`)：
+```typescript
+const formatDate = (dateString: string, timezoneOffset?: string) => {
+  const date = new Date(dateString)
+
+  if (!timezoneOffset) {
+    return `${date.toLocaleString('zh-CN')}`
+  }
+
+  // 解析时区偏移量
+  const offsetHours = parseInt(timezoneOffset.substring(1, 3))
+  const offsetMinutes = parseInt(timezoneOffset.substring(4, 6))
+  const offsetSign = timezoneOffset[0] === '+' ? 1 : -1
+  const totalOffsetMinutes = offsetSign * (offsetHours * 60 + offsetMinutes)
+
+  // 检查是否与用户本地时区一致
+  const userOffset = date.getTimezoneOffset()
+  const isSameTimezone = userOffset === -totalOffsetMinutes
+
+  if (isSameTimezone) {
+    // 时区一致：直接显示时间
+    return date.toLocaleString('zh-CN')
+  } else {
+    // 时区不同：显示时间并标注照片时区
+    const timezoneLabel = `UTC${timezoneOffset}`
+    return `${date.toLocaleString('zh-CN')} (${timezoneLabel})`
+  }
+}
+```
+
+**已知问题**：不同时区拍摄的照片可能按时间顺序错乱。由于采用"时间字面量"策略，2024-06-15 10:00:00 UTC+8 的照片可能排在 2024-06-15 02:00:00 UTC+0 的照片后面（按字面量 02:00 < 10:00），尽管前者实际上拍摄时间更晚。暂不修复。
