@@ -6,7 +6,7 @@ use uuid::Uuid;
 /// Custom serialization for NaiveDateTime to ISO string format
 mod date_serialization {
     use chrono::NaiveDateTime;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer};
 
     pub fn serialize<S>(date: &Option<NaiveDateTime>, serializer: S) -> Result<S::Ok, S::Error>
     where

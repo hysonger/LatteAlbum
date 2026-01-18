@@ -127,7 +127,7 @@ pub fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> 
 
     let file = File::open(path).map_err(ProcessingError::IoError)?;
     let reader = BufReader::new(file);
-    let decoder = image::io::Reader::new(reader)
+    let decoder = image::ImageReader::new(reader)
         .with_guessed_format()
         .map_err(|e| ProcessingError::Processing(e.to_string()))?;
 

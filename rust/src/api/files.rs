@@ -30,14 +30,18 @@ fn get_size_label(target_width: u32) -> String {
 
 /// Query parameters for file list
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileQueryParams {
     pub path: Option<String>,
     pub page: Option<i32>,
     pub size: Option<i32>,
-    pub sortBy: Option<String>,
+    #[serde(rename = "sortBy")]
+    pub sort_by: Option<String>,
     pub order: Option<String>,
-    pub filterType: Option<String>,
-    pub cameraModel: Option<String>,
+    #[serde(rename = "filterType")]
+    pub filter_type: Option<String>,
+    #[serde(rename = "cameraModel")]
+    pub camera_model: Option<String>,
     pub date: Option<String>,
 }
 
@@ -79,7 +83,7 @@ pub async fn list_files(
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(0);
     let size = params.size.unwrap_or(50);
-    let sort_by = params.sortBy.as_deref().unwrap_or("exifTimestamp");
+    let sort_by = params.sort_by.as_deref().unwrap_or("exifTimestamp");
     let order = params.order.as_deref().unwrap_or("desc");
 
     let repo = MediaFileRepository::new(&state.db);
@@ -87,8 +91,8 @@ pub async fn list_files(
     let files = match repo
         .find_all(
             params.path.as_deref(),
-            params.filterType.as_deref(),
-            params.cameraModel.as_deref(),
+            params.filter_type.as_deref(),
+            params.camera_model.as_deref(),
             params.date.as_deref(),
             sort_by,
             order,
@@ -101,7 +105,7 @@ pub async fn list_files(
     };
 
     let total = match repo
-        .count(params.path.as_deref(), params.filterType.as_deref())
+        .count(params.path.as_deref(), params.filter_type.as_deref())
         .await {
         Ok(total) => total,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -245,7 +249,7 @@ pub async fn get_original(
 ) -> impl IntoResponse {
     use axum::http::StatusCode;
     use std::io::SeekFrom;
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio::io::AsyncSeekExt;
 
     let repo = MediaFileRepository::new(&state.db);
 
@@ -375,7 +379,7 @@ pub async fn list_dates(
     let repo = MediaFileRepository::new(&state.db);
 
     match repo
-        .find_dates_with_files(params.path.as_deref(), params.filterType.as_deref())
+        .find_dates_with_files(params.path.as_deref(), params.filter_type.as_deref())
         .await
     {
         Ok(dates) => Json(dates).into_response(),

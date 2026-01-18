@@ -11,6 +11,7 @@ pub struct FileService {
     db: DatabasePool,
     cache: Arc<CacheService>,
     processors: Arc<ProcessorRegistry>,
+    #[allow(dead_code)]
     transcoding_pool: Arc<TranscodingPool>,
 }
 
@@ -198,15 +199,6 @@ fn guess_mime_type(file_name: &str) -> String {
         "mkv" => "video/x-matroska".to_string(),
         _ => "application/octet-stream".to_string(),
     }
-}
-
-/// Check if a file is a JPEG by extension
-fn is_jpeg_file(file_name: &str) -> bool {
-    file_name
-        .rsplit('.')
-        .next()
-        .map(|s| s.eq_ignore_ascii_case("jpg") || s.eq_ignore_ascii_case("jpeg"))
-        .unwrap_or(false)
 }
 
 /// Check if a file format is natively supported by browsers (can be served directly without transcoding)

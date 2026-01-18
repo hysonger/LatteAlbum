@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use std::path::Path;
 use std::sync::Arc;
-use rayon::prelude::*;
 
 /// HEIF/HEIC image processor
 /// Uses libheif-rs for HEIC decoding

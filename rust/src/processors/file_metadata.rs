@@ -29,5 +29,6 @@ pub fn extract_file_metadata(path: &Path) -> MediaMetadata {
 /// Convert std::time::SystemTime to chrono::NaiveDateTime
 fn system_time_to_naive_datetime(time: std::time::SystemTime) -> Option<chrono::NaiveDateTime> {
     let duration = time.duration_since(std::time::UNIX_EPOCH).ok()?;
-    chrono::NaiveDateTime::from_timestamp_opt(duration.as_secs() as i64, 0)
+    chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+        .map(|dt| dt.naive_utc())
 }

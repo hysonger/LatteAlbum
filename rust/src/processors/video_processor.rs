@@ -7,6 +7,7 @@ use std::path::Path;
 /// Video processor for MP4, AVI, MOV, MKV, etc.
 /// Uses ffmpeg-next for video processing when available
 pub struct VideoProcessor {
+    #[allow(dead_code)]
     ffmpeg_path: Option<String>,
 }
 

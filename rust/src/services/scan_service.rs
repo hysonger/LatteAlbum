@@ -418,7 +418,7 @@ impl ScanService {
                                             .as_secs();
 
                                         let db_time = existing.modify_time
-                                            .map(|t| t.timestamp() as u64)
+                                            .map(|t| t.and_utc().timestamp() as u64)
                                             .unwrap_or(0);
 
                                         if fs_time == db_time {
@@ -617,7 +617,7 @@ impl ScanService {
         &self,
         results: Vec<ProcessingResult>,
         skip_list: &[PathBuf],
-        total: u64
+        _total: u64
     ) -> bool {
         const BATCH_SIZE: usize = 100;
         let repo = MediaFileRepository::new(&self.db);
@@ -703,7 +703,7 @@ impl ScanService {
         let total = files.len() as u64;
         let mut results: Vec<ProcessingResult> = Vec::with_capacity(total as usize);
 
-        for (index, file) in files.iter().enumerate() {
+        for (_, file) in files.iter().enumerate() {
             if self.is_cancelled.load(Ordering::SeqCst) {
                 // 保存已处理的文件后再发送取消状态
                 self.save_partial_results(&results, files).await;
@@ -795,39 +795,6 @@ impl ScanService {
                 tracing::error!("Failed to touch skip list on cancel: {}", e);
             }
         }
-    }
-
-    /// Process single file (serial fallback)
-    async fn process_file(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let repo = MediaFileRepository::new(&self.db);
-        let processor = self.processors.find_processor(path).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::Unsupported, "No processor found")
-        })?;
-
-        let file_metadata = crate::processors::file_metadata::extract_file_metadata(path);
-        let format_metadata = processor.process(path).await?;
-
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        let file_type = if processor.media_type() == crate::processors::MediaType::Video {
-            "video"
-        } else {
-            "image"
-        };
-
-        let media_file = Self::build_media_file(
-            path,
-            file_name,
-            file_type,
-            &file_metadata,
-            &format_metadata,
-        );
-
-        repo.upsert(&media_file).await?;
-        Ok(())
     }
 
     async fn delete_missing(&self, existing_files: &[PathBuf]) {

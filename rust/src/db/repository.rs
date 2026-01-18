@@ -1,7 +1,6 @@
 use crate::db::models::{DateInfo, Directory, MediaFile};
 use crate::db::pool::DatabasePool;
 use chrono::{NaiveDateTime, Utc};
-use sqlx::Row;
 use std::path::{Path, PathBuf};
 
 /// Repository for media file database operations
