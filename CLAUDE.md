@@ -342,6 +342,8 @@ frontend/src/
 │   ├── PhotoViewer.vue  # Fullscreen viewer
 │   ├── MediaCard.vue    # Thumbnail card with Intersection Observer
 │   └── DateNavigator.vue # Calendar date picker
+├── composables/
+│   └── useScreenSize.ts # Screen size responsive detection (mobile/tablet/desktop)
 ├── stores/
 │   └── gallery.ts       # Pinia store for gallery state
 ├── services/
@@ -350,6 +352,28 @@ frontend/src/
 └── types/
     └── index.ts         # TypeScript interfaces
 ```
+
+### useScreenSize Composable
+
+统一管理屏幕宽度检测，避免各组件重复实现 resize 监听逻辑：
+
+```typescript
+// frontend/src/composables/useScreenSize.ts
+const { isMobile, isTablet, isDesktop } = useScreenSize()
+```
+
+**响应式断点定义**：
+
+| 状态 | 宽度范围 | 用途 |
+|------|----------|------|
+| `isMobile` | < 768px | 手机端 |
+| `isTablet` | 768px - 1024px | 平板设备 |
+| `isDesktop` | >= 1024px | 桌面设备 |
+
+**使用场景**：
+- `HomeView.vue`: 移动端菜单切换
+- `PhotoViewer.vue`: 小屏设备只加载 `large` 尺寸缩略图
+- `Gallery.vue`: 缩略图尺寸和瀑布流列数自适应
 
 ### Gallery Lazy Loading Optimization
 
@@ -1105,6 +1129,10 @@ The `PhotoViewer.vue` component displays photo metadata in detail view. Key feat
 - Group titles removed, only fields displayed
 - Fields within groups displayed as inline-blocks
 - Each field shows label and value on separate lines
+
+**Small Screen Optimization** (`loadMedia` function):
+- Mobile devices (< 768px): Only request `large` size thumbnail to reduce bandwidth
+- Desktop devices: Parallel request `full` and `large`, display whichever returns first
 
 **Formatting**:
 ```typescript
