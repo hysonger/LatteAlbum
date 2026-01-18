@@ -13,7 +13,7 @@ pub struct RescanResponse {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanProgressResponse {
-    pub scanning: bool,
+    pub status: String,
     pub phase: Option<String>,
     pub total_files: u64,
     pub success_count: u64,
@@ -47,13 +47,16 @@ pub struct SystemStatus {
 pub async fn trigger_rescan(State(state): State<AppState>) -> impl IntoResponse {
     let config = &state.config;
 
-    // Start async scan
+    // Start scan in blocking thread pool to avoid blocking API requests
     let scan_service = state.scan_service.clone();
     let parallel = config.scan_parallel;
 
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         tracing::info!("Triggering rescan with parallel: {}", parallel);
-        scan_service.scan(parallel).await;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            scan_service.scan(parallel).await;
+        });
     });
 
     Json(RescanResponse {
@@ -67,7 +70,7 @@ pub async fn get_scan_progress(State(state): State<AppState>) -> impl IntoRespon
     let progress = state.broadcaster.get_current_progress().await;
 
     Json(ScanProgressResponse {
-        scanning: progress.scanning,
+        status: progress.status,
         phase: progress.phase,
         total_files: progress.total_files,
         success_count: progress.success_count,

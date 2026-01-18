@@ -46,6 +46,7 @@ pub enum ProgressUpdate {
     IncrementSuccess,
     IncrementFailure,
     SetFileCounts(u64, u64, u64), // add, update, delete
+    ResetCounters,  // 仅重置计数器，不发送广播
     Started,
     Completed,
     Error,
@@ -93,6 +94,11 @@ impl ScanStateManager {
                             current_state.files_to_update = update;
                             current_state.files_to_delete = delete;
                         }
+                        ProgressUpdate::ResetCounters => {
+                            // 仅重置计数器，不发送广播消息
+                            current_state.success_count = 0;
+                            current_state.failure_count = 0;
+                        }
                         ProgressUpdate::Started => {
                             current_state.scanning = true;
                             current_state.start_time = Some(chrono::Utc::now().to_rfc3339());
@@ -135,7 +141,7 @@ impl ScanStateManager {
                         let phase_str = format!("{:?}", current_state.phase);
                         let msg = ScanProgressMessage {
                             scanning: current_state.scanning,
-                            phase: Some(phase_str),
+                            phase: Some(phase_str.clone()),
                             total_files: current_state.total_files,
                             success_count: current_state.success_count,
                             failure_count: current_state.failure_count,
@@ -146,6 +152,8 @@ impl ScanStateManager {
                             files_to_delete: current_state.files_to_delete,
                             start_time: current_state.start_time.clone(),
                         };
+                        tracing::debug!("[ScanStateManager] 发送进度消息: phase={}, status={}, total={}",
+                            phase_str, msg.status, msg.total_files);
                         let _ = tx_clone.send(msg);
                         last_progress_reported = processed;
                     }
@@ -157,18 +165,6 @@ impl ScanStateManager {
             state,
             progress_sender: progress_tx,
             _worker_task: worker_task.abort_handle(),
-        }
-    }
-
-    fn status_from_phase(phase: &ScanPhase) -> String {
-        match phase {
-            ScanPhase::Idle => "idle".to_string(),
-            ScanPhase::Collecting | ScanPhase::Counting | ScanPhase::Processing | ScanPhase::Writing | ScanPhase::Deleting => {
-                "progress".to_string()
-            }
-            ScanPhase::Completed => "completed".to_string(),
-            ScanPhase::Error => "error".to_string(),
-            ScanPhase::Cancelled => "cancelled".to_string(),
         }
     }
 
@@ -193,6 +189,11 @@ impl ScanStateManager {
         let _ = self.progress_sender.try_send(ProgressUpdate::SetFileCounts(add, update, delete));
     }
 
+    /// 重置计数器（仅内部状态，不发送广播）
+    pub fn reset_counters(&self) {
+        let _ = self.progress_sender.try_send(ProgressUpdate::ResetCounters);
+    }
+
     pub fn started(&self) {
         let _ = self.progress_sender.try_send(ProgressUpdate::Started);
     }
@@ -212,5 +213,40 @@ impl ScanStateManager {
     /// 获取当前状态（用于查询）
     pub fn get_state(&self) -> ScanState {
         self.state.read().unwrap().clone()
+    }
+
+    /// 将当前状态转换为 ScanProgressMessage（用于 get_current_progress）
+    pub fn to_progress_message(&self) -> ScanProgressMessage {
+        let state = self.state.read().unwrap();
+        let percentage = if state.total_files > 0 {
+            format!("{:.2}", (state.success_count + state.failure_count) as f64 / state.total_files as f64 * 100.0)
+        } else {
+            "0.00".to_string()
+        };
+        ScanProgressMessage {
+            scanning: state.scanning,
+            phase: Some(format!("{:?}", state.phase)),
+            total_files: state.total_files,
+            success_count: state.success_count,
+            failure_count: state.failure_count,
+            progress_percentage: percentage,
+            status: Self::status_from_phase(&state.phase),
+            files_to_add: state.files_to_add,
+            files_to_update: state.files_to_update,
+            files_to_delete: state.files_to_delete,
+            start_time: state.start_time.clone(),
+        }
+    }
+
+    fn status_from_phase(phase: &ScanPhase) -> String {
+        match phase {
+            ScanPhase::Idle => "idle".to_string(),
+            ScanPhase::Collecting | ScanPhase::Counting | ScanPhase::Processing | ScanPhase::Writing | ScanPhase::Deleting => {
+                "progress".to_string()
+            }
+            ScanPhase::Completed => "completed".to_string(),
+            ScanPhase::Error => "error".to_string(),
+            ScanPhase::Cancelled => "cancelled".to_string(),
+        }
     }
 }

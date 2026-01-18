@@ -112,9 +112,13 @@ impl ScanService {
         let scan_start = Instant::now();
         tracing::info!("Starting parallel scan");
 
+        // 重置计数器，确保每次扫描从0开始
+        self.scan_state.reset_counters();
+
         // Phase 1: Collect all file paths (fast, no DB access)
-        let collect_start = Instant::now();
+        // 在收集文件之前发送 Collecting 阶段，让前端立即看到扫描状态
         self.scan_state.set_phase(ScanPhase::Collecting);
+        let collect_start = Instant::now();
         let files = match self.collect_file_paths().await {
             Ok(files) => files,
             Err(e) => {
@@ -131,9 +135,7 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
-            // 先发送 started 状态，确保前端能收到扫描开始的消息
-            self.scan_state.started();
-            // 再设置完成状态
+            // 设置完成状态
             self.scan_state.set_phase(ScanPhase::Completed);
             self.scan_state.completed();
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
@@ -164,7 +166,6 @@ impl ScanService {
         if processing_count > 0 {
             self.scan_state.set_phase(ScanPhase::Processing);
             self.scan_state.set_total(processing_count);
-            self.scan_state.started();
 
             // Build list of files that need metadata extraction
             let mut files_to_process: Vec<PathBuf> = Vec::with_capacity(processing_count as usize);
@@ -193,7 +194,6 @@ impl ScanService {
             // All files unchanged - just update last_scanned for all
             self.scan_state.set_phase(ScanPhase::Writing);
             self.scan_state.set_file_counts(0, 0, files_to_delete);
-            self.scan_state.started();
 
             let write_start = Instant::now();
             self.batch_write_results_with_skip(Vec::new(), &skip_list, total).await;
@@ -220,6 +220,9 @@ impl ScanService {
         let scan_start = Instant::now();
         tracing::info!("Starting serial scan (fallback mode)");
 
+        // 重置计数器，确保每次扫描从0开始
+        self.scan_state.reset_counters();
+
         // Phase 1: Collect all file paths
         let collect_start = Instant::now();
         self.scan_state.set_phase(ScanPhase::Collecting);
@@ -238,8 +241,7 @@ impl ScanService {
         self.scan_state.set_total(total);
 
         if total == 0 {
-            // 发送 started 和 completed 状态，确保前端能收到消息
-            self.scan_state.started();
+            // 设置完成状态
             self.scan_state.set_phase(ScanPhase::Completed);
             self.scan_state.completed();
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
@@ -256,10 +258,9 @@ impl ScanService {
         // Set file counts and prepare for processing
         self.scan_state.set_file_counts(counts.files_to_add, counts.files_to_update, counts.files_to_delete);
 
-        // Update to processing phase and start
+        // Update to processing phase
         self.scan_state.set_phase(ScanPhase::Processing);
         self.scan_state.set_total(counts.files_to_add + counts.files_to_update);
-        self.scan_state.started();
 
         // Phase 3: Process files serially
         let process_start = Instant::now();

@@ -78,29 +78,28 @@
           :class="{
             success: refreshStatus === 'success',
             error: refreshStatus === 'error',
-            refreshing: scanProgressData?.scanning
+            refreshing: scanProgressData?.status === 'progress'
           }"
           @click="handleRefresh"
-          :disabled="scanProgressData?.scanning"
         >
-          <svg v-if="scanProgressData?.scanning" class="progress-ring" viewBox="0 0 36 36">
+          <svg v-if="scanProgressData?.status === 'progress'" class="progress-ring" viewBox="0 0 36 36">
             <path
               class="progress-ring-bg"
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             />
             <path
               class="progress-ring-fill"
-              :stroke-dasharray="`${parseFloat(scanProgressData?.progressPercentage || '0')}, 100`"
+              :stroke-dasharray="`${Math.min(parseFloat(scanProgressData?.progressPercentage || '0'), 100)}, 100`"
               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
             />
           </svg>
-          <i v-if="!scanProgressData?.scanning && refreshStatus === 'success'" class="fas fa-check"></i>
-          <i v-if="!scanProgressData?.scanning && refreshStatus === 'error'" class="fas fa-times"></i>
-          <i v-if="!scanProgressData?.scanning && refreshStatus === 'default'" class="fas fa-sync-alt"></i>
+          <i v-if="scanProgressData?.status !== 'progress' && refreshStatus === 'success'" class="fas fa-check"></i>
+          <i v-if="scanProgressData?.status !== 'progress' && refreshStatus === 'error'" class="fas fa-times"></i>
+          <i v-if="scanProgressData?.status !== 'progress' && refreshStatus === 'default'" class="fas fa-sync-alt"></i>
 
           <!-- 扫描进度气泡 - 电脑端 -->
           <transition name="fade">
-            <div v-if="showScanPopup && scanProgressData && !isMobile" class="scan-progress-popup" ref="scanPopupRef">
+            <div v-if="showScanPopup && !isMobile" class="scan-progress-popup" ref="scanPopupRef">
               <div class="popup-header">
                 <span class="popup-title">扫描进度</span>
                 <i class="fas fa-times close-icon" @click.stop="showScanPopup = false"></i>
@@ -137,7 +136,7 @@
               <!-- 底部按钮 -->
               <div class="popup-actions">
                 <el-button
-                  v-if="scanProgressData.scanning"
+                  v-if="scanProgressData?.status === 'progress'"
                   type="danger"
                   size="small"
                   @click.stop="handleStopScan"
@@ -255,7 +254,7 @@
             <!-- 底部按钮 -->
             <div class="popup-actions">
               <el-button
-                v-if="scanProgressData?.scanning"
+                v-if="scanProgressData?.status === 'progress'"
                 type="danger"
                 @click="handleStopScan"
               >
@@ -338,10 +337,10 @@ const handleLoadMore = () => {
 }
 
 // 刷新相关
-// isRefreshing 已移除，使用 scanProgressData !== null 判断
+// isRefreshing 已移除，使用 scanProgressData?.status === 'progress' 判断
 const refreshStatus = ref<'default' | 'refreshing' | 'success' | 'error'>('default')
 const scanProgressData = ref<{
-  scanning: boolean
+  status: 'progress' | 'completed' | 'error' | 'idle'
   phase?: string
   totalFiles: number
   successCount: number
@@ -350,11 +349,23 @@ const scanProgressData = ref<{
   filesToAdd?: number
   filesToUpdate?: number
   filesToDelete?: number
-} | null>(null)
+}>({
+  status: 'idle',
+  totalFiles: 0,
+  successCount: 0,
+  failureCount: 0,
+  progressPercentage: ''
+})
 
 // 扫描进度弹窗（气泡/底部弹窗）
 const showScanPopup = ref(false)
 const scanPopupRef = ref<HTMLElement | null>(null)
+
+// 可靠的是否正在扫描状态（无论是否已收到 WebSocket 消息）
+const isScanning = computed(() => {
+  const status = scanProgressData.value?.status
+  return status === 'progress' || status === 'completed' || status === 'error'
+})
 
 // 其他状态
 const showViewer = ref(false)
@@ -423,37 +434,29 @@ const selectFilter = (value: string) => {
 
 // 处理 WebSocket 进度消息
 const handleScanProgress = (progress: ScanProgressMessage) => {
-  switch (progress.status) {
-    case 'started':
-      showScanPopup.value = true
+  // 直接用 status 判断是否进行中
+  if (progress.status === 'progress') {
+    // 进行中阶段：设置扫描状态
+    if (refreshStatus.value !== 'refreshing') {
       refreshStatus.value = 'refreshing'
-      scanProgressData.value = {
-        scanning: true,
-        phase: progress.phase,
-        totalFiles: progress.totalFiles || 0,
-        successCount: 0,
-        failureCount: 0,
-        progressPercentage: '0',
-        filesToAdd: progress.filesToAdd,
-        filesToUpdate: progress.filesToUpdate,
-        filesToDelete: progress.filesToDelete
-      }
-      break
+    }
+    // 不自动弹框，弹框由用户点击按钮控制
 
-    case 'progress':
-      scanProgressData.value = {
-        scanning: true,
-        phase: progress.phase,
-        totalFiles: progress.totalFiles,
-        successCount: progress.successCount,
-        failureCount: progress.failureCount,
-        progressPercentage: progress.progressPercentage,
-        filesToAdd: progress.filesToAdd,
-        filesToUpdate: progress.filesToUpdate,
-        filesToDelete: progress.filesToDelete
-      }
-      break
+    scanProgressData.value = {
+      status: 'progress',
+      phase: progress.phase,
+      totalFiles: progress.totalFiles || 0,
+      successCount: progress.successCount || 0,
+      failureCount: progress.failureCount || 0,
+      progressPercentage: progress.progressPercentage || '0',
+      filesToAdd: progress.filesToAdd || 0,
+      filesToUpdate: progress.filesToUpdate || 0,
+      filesToDelete: progress.filesToDelete || 0
+    }
+    return
+  }
 
+  switch (progress.status) {
     case 'completed':
       // 确保 refreshStatus 被设置为 success（即使之前没收到 started）
       if (refreshStatus.value !== 'success') {
@@ -461,7 +464,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       }
       showScanPopup.value = false
       scanProgressData.value = {
-        scanning: false,
+        status: 'completed',
         phase: 'completed',
         totalFiles: progress.totalFiles,
         successCount: progress.successCount,
@@ -477,7 +480,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       setTimeout(() => {
         refreshStatus.value = 'default'
         if (scanProgressData.value) {
-          scanProgressData.value.scanning = false
+          scanProgressData.value.status = 'idle'
         }
       }, 2000)
       // 刷新相册数据
@@ -487,7 +490,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
     case 'error':
       refreshStatus.value = 'error'
       scanProgressData.value = {
-        scanning: false,
+        status: 'error',
         phase: 'error',
         totalFiles: progress.totalFiles || 0,
         successCount: progress.successCount || 0,
@@ -502,7 +505,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
       setTimeout(() => {
         refreshStatus.value = 'default'
         if (scanProgressData.value) {
-          scanProgressData.value.scanning = false
+          scanProgressData.value.status = 'idle'
         }
       }, 3000)
       break
@@ -510,7 +513,7 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
     case 'cancelled':
       refreshStatus.value = 'default'
       if (scanProgressData.value) {
-        scanProgressData.value.scanning = false
+        scanProgressData.value.status = 'idle'
       }
       break
   }
@@ -518,17 +521,19 @@ const handleScanProgress = (progress: ScanProgressMessage) => {
 
 // 刷新功能
 const handleRefresh = async () => {
-  // 如果正在扫描，切换显示进度弹窗
-  if (scanProgressData.value?.scanning) {
+  console.log('isScanning.value:', isScanning.value);
+  // 如果正在扫描（首次扫描或用户触发的扫描正在进行），点击按钮切换弹窗显示
+  if (isScanning.value) {
+    console.log('showScanPopup.value:', showScanPopup.value);
     showScanPopup.value = !showScanPopup.value
+    console.log('showScanPopup.value after toggle:', showScanPopup.value);
     return
   }
 
+  // 不在扫描状态，点击按钮触发新扫描
   try {
-    // 重置扫描状态
     refreshStatus.value = 'refreshing'
-    // 不立即显示弹窗，等收到 WebSocket 进度消息后再显示
-    showScanPopup.value = false
+    // 保持 showScanPopup 为 false，不自动弹出
 
     // 调用重新扫描接口
     await systemApi.rescan()
@@ -536,7 +541,7 @@ const handleRefresh = async () => {
   } catch (error) {
     console.error('刷新失败:', error)
     if (scanProgressData.value) {
-      scanProgressData.value.scanning = false
+      scanProgressData.value.status = 'idle'
     }
     refreshStatus.value = 'error'
     showScanPopup.value = false
@@ -557,11 +562,6 @@ const handleClickOutside = (event: MouseEvent) => {
   if (mainContent && mainContent.contains(target)) {
     showMobileMenu.value = false
     showSortMenu.value = false
-  }
-
-  // 扫描进度弹窗点击外部关闭（仅桌面端）
-  if (showScanPopup.value && scanPopupRef.value && !isMobile.value && !scanPopupRef.value.contains(event.target as Node)) {
-    showScanPopup.value = false
   }
 }
 
@@ -633,30 +633,32 @@ onMounted(async () => {
 
     // 检查是否有正在进行的扫描
     try {
-      const statusResponse = await systemApi.getStatus()
-      if (statusResponse.data.scanning) {
-        // 标记正在扫描，刷新按钮显示进度环
-        scanProgressData.value = { scanning: true, phase: 'processing', totalFiles: 0, successCount: 0, failureCount: 0, progressPercentage: '0.00' }
-        refreshStatus.value = 'refreshing'
-        // 尝试获取当前进度
-        try {
-          const progressResponse = await systemApi.getScanProgress()
-          if (progressResponse.data.scanning) {
-            scanProgressData.value = {
-              scanning: true,
-              phase: progressResponse.data.phase || 'processing',
-              totalFiles: progressResponse.data.totalFiles || 0,
-              successCount: progressResponse.data.successCount || 0,
-              failureCount: progressResponse.data.failureCount || 0,
-              progressPercentage: progressResponse.data.progressPercentage || '0',
-              filesToAdd: progressResponse.data.filesToAdd,
-              filesToUpdate: progressResponse.data.filesToUpdate,
-              filesToDelete: progressResponse.data.filesToDelete
-            }
+      await systemApi.getStatus()
+      // SystemStatus.status 表示应用状态，get_scan_progress API 的 status 才表示扫描状态
+      // 这里检查的是应用是否在运行中（任何状态都正常）
+      // 扫描状态的检查通过 get_scan_progress API 完成
+      refreshStatus.value = 'default'
+
+      // 尝试获取当前扫描进度
+      try {
+        const progressResponse = await systemApi.getScanProgress()
+        if (progressResponse.data.status === 'progress') {
+          // 扫描进行中
+          scanProgressData.value = {
+            status: 'progress',
+            phase: progressResponse.data.phase || 'processing',
+            totalFiles: progressResponse.data.totalFiles || 0,
+            successCount: progressResponse.data.successCount || 0,
+            failureCount: progressResponse.data.failureCount || 0,
+            progressPercentage: progressResponse.data.progressPercentage || '0',
+            filesToAdd: progressResponse.data.filesToAdd,
+            filesToUpdate: progressResponse.data.filesToUpdate,
+            filesToDelete: progressResponse.data.filesToDelete
           }
-        } catch (e) {
-          console.error('[HomeView] 获取扫描进度失败:', e)
+          refreshStatus.value = 'refreshing'
         }
+      } catch (e) {
+        console.error('[HomeView] 获取扫描进度失败:', e)
       }
     } catch (e) {
       console.error('[HomeView] 检查扫描状态失败:', e)

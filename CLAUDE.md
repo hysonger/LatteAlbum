@@ -353,6 +353,31 @@ The scanning process consists of 6 phases:
 | 5. Deleting | `deleting` | Remove database entries for missing files |
 | 6. Completed | `completed` | Scan finished successfully |
 
+### Thread Pool Isolation (Scan Tasks)
+
+All scan tasks run in a dedicated thread pool, isolated from web service requests:
+
+| Task Type | Thread Pool | Isolation |
+|-----------|-------------|-----------|
+| Initial scan (first run) | `spawn_blocking` + dedicated Runtime | Isolated from API/WebSocket |
+| User-triggered scan | `spawn_blocking` + dedicated Runtime | Isolated from API/WebSocket |
+| Scheduled scan | `spawn_blocking` + dedicated Runtime | Isolated from API/WebSocket |
+| API requests | Tokio async executor | Isolated from scans |
+| WebSocket messages | Tokio async executor | Isolated from scans |
+
+**Implementation** (`app.rs` / `system.rs`):
+```rust
+// Scan tasks use spawn_blocking with a new Runtime
+tokio::task::spawn_blocking(move || {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        scan_service.scan(parallel).await;
+    });
+});
+```
+
+This prevents CPU-intensive or I/O-intensive scan operations from blocking API requests.
+
 ### Modification Time Comparison
 
 The scanner optimizes performance by comparing file modification times:
@@ -409,9 +434,9 @@ pub enum ScanPhase {
 }
 
 /// Scan state (shared via Arc<RwLock>)
+#[derive(Debug, Clone, Default)]
 pub struct ScanState {
     pub phase: ScanPhase,
-    pub phase_message: String,
     pub scanning: bool,
     pub total_files: u64,
     pub success_count: u64,
@@ -423,15 +448,17 @@ pub struct ScanState {
 }
 
 /// Progress update messages (business logic -> state manager)
+#[derive(Debug)]
 pub enum ProgressUpdate {
-    SetPhase(ScanPhase, String),
+    SetPhase(ScanPhase),
     SetTotal(u64),
     IncrementSuccess,
     IncrementFailure,
     SetFileCounts(u64, u64, u64), // add, update, delete
+    ResetCounters,  // 仅重置计数器，不发送广播
     Started,
     Completed,
-    Error(String),
+    Error,
     Cancelled,
 }
 
@@ -446,32 +473,31 @@ pub struct ScanStateManager {
 **Key methods** (`scan_service.rs` calls these methods):
 | Method | Purpose |
 |--------|---------|
-| `set_phase(phase, message)` | Update current phase (message stored but not sent to frontend) |
+| `set_phase(phase)` | Update current phase |
 | `set_total(total)` | Set total files to process |
 | `set_file_counts(add, update, delete)` | Set file counts for add/update/delete |
-| `started()` | Mark scan as started, set start_time |
+| `reset_counters()` | Reset success/failure counters only (no broadcast) |
+| `started()` | Mark scan as started, set start_time, reset counters |
 | `increment_success()` | Increment success count |
 | `increment_failure()` | Increment failure count |
 | `completed()` | Mark scan as completed |
-| `error(message)` | Mark scan as error (message not sent to frontend) |
+| `error()` | Mark scan as error |
 | `cancelled()` | Mark scan as cancelled |
-| `get_state()` | Get current state (for HTTP fallback) |
-
-**Note**: The `message` parameter in `set_phase()` and `error()` is stored in `ScanState.phase_message` but is NOT sent to the frontend. The frontend generates Chinese display text locally.
+| `to_progress_message()` | Convert current state to ScanProgressMessage (for HTTP API) |
 
 **Message Flow**:
 ```
 scan_service (business logic)
     │
-    ├── set_phase(Collecting, "Collecting files...")
+    ├── set_phase(Collecting)
     ├── set_total(318)
-    ├── set_phase(Counting, "Checking database...")
+    ├── set_phase(Counting)
     ├── set_file_counts(302, 0, 16)  // Early calculation of delete count
-    ├── set_phase(Processing, "...")
+    ├── set_phase(Processing)
     ├── started()
     ├── increment_success/failure()  // Every 10 files
-    ├── set_phase(Writing, "Saving to database...")
-    ├── set_phase(Deleting, "Cleaning up...")
+    ├── set_phase(Writing)
+    ├── set_phase(Deleting)
     └── completed()
             │
             ▼
@@ -488,21 +514,22 @@ scan_service (business logic)
 - Progress broadcast every 10 files (configurable in `scan_state.rs`)
 - `files_to_delete` calculated early during Counting phase via `count_missing()`
 - `files_to_add/update/delete` set once and preserved throughout scan
+- `to_progress_message()` provides current state via HTTP API without broadcast channel
 
 ### WebSocket Progress Broadcast
 
 **Message Structure** (`websocket/broadcast.rs`):
 ```rust
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanProgressMessage {
     pub scanning: bool,
     pub phase: Option<String>,              // collecting, counting, processing, writing, deleting, completed
-    // phase_message 已移除，由前端根据 phase 值生成中文文本
     pub total_files: u64,
     pub success_count: u64,
     pub failure_count: u64,
     pub progress_percentage: String,        // e.g., "45.50"
-    pub status: String,                     // started, progress, completed, error, cancelled
+    pub status: String,                     // idle, progress, completed, error, cancelled
     pub files_to_add: u64,
     pub files_to_update: u64,
     pub files_to_delete: u64,
@@ -518,8 +545,52 @@ Progress broadcasts are triggered automatically by `ScanStateManager` worker tas
 - **Every 10 files**: During Processing phase
 - **On phase change**: When `set_phase()` is called
 - **On state change**: When `started()`, `completed()`, `error()`, `cancelled()` are called
+- **ResetCounters does NOT broadcast**: Only resets internal counters
 
 The worker task constructs `ScanProgressMessage` from current state and sends via `ScanProgressBroadcaster`.
+
+### ScanProgressBroadcaster and Shared State
+
+**Circular Dependency Resolution** (`websocket/broadcast.rs`):
+
+`ScanProgressBroadcaster` holds an optional reference to `ScanStateManager`:
+
+```rust
+#[derive(Clone)]
+pub struct ScanProgressBroadcaster {
+    tx: broadcast::Sender<ScanProgressMessage>,
+    scan_state: Option<Arc<ScanStateManager>>,  // Shared state reference
+}
+
+impl ScanProgressBroadcaster {
+    /// Set the scan_state reference (must be called after creating ScanStateManager)
+    pub fn set_scan_state(&mut self, scan_state: Arc<ScanStateManager>) {
+        self.scan_state = Some(scan_state);
+    }
+
+    /// Get current progress state (uses shared state, not broadcast channel)
+    pub async fn get_current_progress(&self) -> ScanProgressMessage {
+        if let Some(ref state) = self.scan_state {
+            return state.to_progress_message();
+        }
+        // Fallback to broadcast channel if scan_state not set
+        self.get_current_message().await
+    }
+}
+```
+
+**Initialization in `app.rs`**:
+```rust
+let mut broadcaster = Arc::new(ScanProgressBroadcaster::new());
+let scan_state = Arc::new(ScanStateManager::new(broadcaster.sender()));
+
+// Break circular dependency using Arc::make_mut()
+Arc::make_mut(&mut broadcaster).set_scan_state(scan_state.clone());
+```
+
+This design allows:
+- **WebSocket messages**: Sent via broadcast channel from `ScanStateManager` worker
+- **HTTP API** (`/api/system/scan/progress`): Returns current state via `to_progress_message()`
 
 ### WebSocket Connection
 
@@ -530,7 +601,7 @@ The worker task constructs `ScanProgressMessage` from current state and sends vi
 
 ### Frontend Chinese Progress Text
 
-**The backend no longer sends `phase_message`** - The frontend generates Chinese display text locally based on the `phase` value.
+The frontend generates Chinese display text locally based on the `phase` value.
 
 **Phase Label Mapping** (`frontend/src/services/websocket.ts`):
 ```typescript
@@ -622,6 +693,143 @@ The parallel scanning implementation with mtime optimization significantly impro
 #### Serial Mode (Fallback)
 
 Enabled when `LATTE_SCAN_PARALLEL=false`. Processes files one-by-one with individual database operations. Used as fallback for debugging or problematic environments.
+
+### Frontend Scan Progress UI
+
+**State Management** (`frontend/src/views/HomeView.vue`):
+
+```typescript
+// 刷新状态（控制按钮图标）
+const refreshStatus = ref<'default' | 'refreshing' | 'success' | 'error'>('default')
+
+// 扫描进度数据
+const scanProgressData = ref<{
+  status: 'progress' | 'completed' | 'error' | 'idle'
+  phase?: string
+  totalFiles: number
+  successCount: number
+  failureCount: number
+  progressPercentage: string
+  filesToAdd?: number
+  filesToUpdate?: number
+  filesToDelete?: number
+}>({
+  status: 'idle',
+  totalFiles: 0,
+  successCount: 0,
+  failureCount: 0,
+  progressPercentage: ''
+})
+
+// 弹窗显示控制
+const showScanPopup = ref(false)
+const scanPopupRef = ref<HTMLElement | null>(null)
+
+// 可靠的是否正在扫描状态
+const isScanning = computed(() => {
+  const status = scanProgressData.value?.status
+  return status === 'progress' || status === 'completed' || status === 'error'
+})
+```
+
+**Button Click Logic** (`handleRefresh`):
+```typescript
+const handleRefresh = async () => {
+  // 如果正在扫描，点击按钮切换弹窗显示
+  if (isScanning.value) {
+    showScanPopup.value = !showScanPopup.value
+    return
+  }
+
+  // 不在扫描状态，点击按钮触发新扫描
+  try {
+    refreshStatus.value = 'refreshing'
+    await systemApi.rescan()
+  } catch (error) {
+    refreshStatus.value = 'error'
+    showScanPopup.value = false
+  }
+}
+```
+
+**WebSocket Progress Handler** (`handleScanProgress`):
+```typescript
+const handleScanProgress = (progress: ScanProgressMessage) => {
+  if (progress.status === 'progress') {
+    scanProgressData.value = {
+      status: 'progress',
+      phase: progress.phase,
+      totalFiles: progress.totalFiles || 0,
+      successCount: progress.successCount || 0,
+      failureCount: progress.failureCount || 0,
+      progressPercentage: progress.progressPercentage || '0',
+      filesToAdd: progress.filesToAdd || 0,
+      filesToUpdate: progress.filesToUpdate || 0,
+      filesToDelete: progress.filesToDelete || 0
+    }
+    return
+  }
+
+  switch (progress.status) {
+    case 'completed':
+      showScanPopup.value = false
+      refreshStatus.value = 'success'
+      // 2秒后恢复默认状态
+      setTimeout(() => { refreshStatus.value = 'default' }, 2000)
+      break
+    case 'error':
+      refreshStatus.value = 'error'
+      // 3秒后恢复默认状态
+      setTimeout(() => { refreshStatus.value = 'default' }, 3000)
+      break
+    case 'cancelled':
+      refreshStatus.value = 'default'
+      break
+  }
+}
+```
+
+**Popup Display Conditions**:
+
+| Condition | Desktop | Mobile |
+|-----------|---------|--------|
+| Show popup | `showScanPopup && !isMobile` | `showScanPopup && isMobile` |
+| Popup position | Absolute, below button | Fixed, bottom sheet |
+| Close on outside click | Yes | Yes (mask click) |
+| Auto-close on complete | Yes | Yes |
+
+**UI Interaction Flow**:
+```
+User clicks refresh button
+         │
+         ├── isScanning === true
+         │         │
+         │         └── Toggle showScanPopup → Show/hide popup
+         │
+         └── isScanning === false
+                   │
+                   └── Call rescan() → Show refreshing icon
+                            │
+                            └── Receive WebSocket progress
+                                      │
+                                      └── Update scanProgressData
+```
+
+### WebSocket Service (`frontend/src/services/websocket.ts`)
+
+**ScanProgressWebSocketService** provides real-time scan progress updates:
+
+| Method | Purpose |
+|--------|---------|
+| `connect()` | Connect to `/ws/scan`, auto-reconnect on disconnect |
+| `disconnect()` | Close WebSocket connection |
+| `onProgress(callback)` | Register progress callback |
+| `offProgress()` | Remove progress callback |
+| `isReady()` | Check connection status |
+
+**Reconnection Logic**:
+- Automatic reconnection every 5 seconds if connection lost
+- Console logging for debugging
 
 ### Configuration
 
@@ -786,6 +994,7 @@ export interface MediaFile {
 
 ## Common Development Guideline
 
+ - When modifing any existing code that could infect any existing logic or behavior, do not ignore any potential side effect. MAKE SURE  to check all the relevant code, or serious bugs might be introduced.
  - After any massive code change, e.g. feature and refactor, or critical logical change & breaking change, MAKE SURE to check and update the logical design to CLAUDE.md for future reference.
  - If you have multiple approach for a hard or systematic problem, programming an rust example to test if it could work in the first place is a good idea.
 
@@ -801,8 +1010,13 @@ Remember, just starting developing the code without reading the documentation ma
 
 ## Debug Guideline
 
- - For those difficult-to-debug issues, DO NOT give arbitrary conclusions for the problem. 
+ - Debugging must be wide-range, detailed and cautious. Never omit any relevant information and suspicious code when debugging.
+ - For those difficult-to-debug issues, giving arbitrary conclusions for the problem is COMPLETELY unacceptable. 
    - You should be clear that you are an AI assistant and lack of outer information, might make mistakes from time to time. 
-   - Tend to give assumptions and suggestions rather than conclusions, unless you indeed find the actual valid information of the reason. Feel free to ask me the user for more information if needed.
+   - Give final conclusions only when you are totally sure you do build up a completed, trusted evidence chain towards the reason. 
+ - Feel free to ask me the user for more information or necessary manual operation if needed.
  - Do not hesitate to add well-detailed debug information, e.g. error messages, stack traces, or any other relevant details when lack of information. 
-   - After I claim the problem is resolved, revert the temporary debug information.
+ 
+ ## Frontend Design Guideline
+
+ The design principle of the frontend is to keep it elegant, simple to use, and match with the human intuition. By default the UI should not contain too much bloated information, only show detail when user open the detail view. The detail view should be well organized and easy to read, and the entry is easy to find.

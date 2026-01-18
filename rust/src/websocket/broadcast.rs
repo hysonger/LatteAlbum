@@ -1,4 +1,6 @@
 use tokio::sync::broadcast;
+use std::sync::Arc;
+use crate::websocket::ScanStateManager;
 
 /// Scan progress message
 #[derive(Debug, Clone, serde::Serialize)]
@@ -37,15 +39,22 @@ impl Default for ScanProgressMessage {
 }
 
 /// Broadcaster for scan progress updates
+#[derive(Clone)]
 pub struct ScanProgressBroadcaster {
     tx: broadcast::Sender<ScanProgressMessage>,
+    scan_state: Option<Arc<ScanStateManager>>,
 }
 
 impl ScanProgressBroadcaster {
     /// Create a new broadcaster
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(100);
-        Self { tx }
+        Self { tx, scan_state: None }
+    }
+
+    /// Set the scan_state reference (must be called after creating ScanStateManager)
+    pub fn set_scan_state(&mut self, scan_state: Arc<ScanStateManager>) {
+        self.scan_state = Some(scan_state);
     }
 
     /// Subscribe to progress updates
@@ -56,6 +65,16 @@ impl ScanProgressBroadcaster {
     /// Get a sender clone for creating progress trackers
     pub fn sender(&self) -> broadcast::Sender<ScanProgressMessage> {
         self.tx.clone()
+    }
+
+    /// Get current progress state (uses shared state, not broadcast channel)
+    pub async fn get_current_progress(&self) -> ScanProgressMessage {
+        // Use scan_state shared state if available
+        if let Some(ref state) = self.scan_state {
+            return state.to_progress_message();
+        }
+        // Fallback to broadcast channel if scan_state not set
+        self.get_current_message().await
     }
 
     /// Send scan started message
@@ -163,11 +182,6 @@ impl ScanProgressBroadcaster {
                 ..Default::default()
             }
         }
-    }
-
-    /// Get current progress state
-    pub async fn get_current_progress(&self) -> ScanProgressMessage {
-        self.get_current_message().await
     }
 
     async fn get_current_message(&self) -> ScanProgressMessage {

@@ -49,8 +49,12 @@ impl App {
         tokio::fs::create_dir_all(&config.cache_dir).await?;
 
         // Create shared state
-        let broadcaster = Arc::new(ScanProgressBroadcaster::new());
+        let mut broadcaster = Arc::new(ScanProgressBroadcaster::new());
         let scan_state = Arc::new(ScanStateManager::new(broadcaster.sender()));
+
+        // Set scan_state reference in broadcaster (break circular dependency)
+        Arc::make_mut(&mut broadcaster).set_scan_state(scan_state.clone());
+
         let cache_service = Arc::new(CacheService::new(&config.cache_dir).await?);
 
         // Create transcoding pool for CPU-intensive image processing (MUST be created before processors)
@@ -177,10 +181,13 @@ impl App {
         let repo = MediaFileRepository::new(&self.state.db);
         if repo.is_empty().await? {
             info!("First run detected - starting initial scan...");
-            // Spawn scan in background to avoid blocking API requests
+            // Spawn scan in blocking thread pool to avoid blocking API requests
             let scan_service = self.state.scan_service.clone();
-            tokio::spawn(async move {
-                scan_service.scan(true).await;
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    scan_service.scan(true).await;
+                });
             });
         }
 

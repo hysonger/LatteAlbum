@@ -6,7 +6,7 @@ export interface ScanProgressMessage {
   failureCount: number
   progressPercentage: string
   startTime?: string
-  status: 'started' | 'progress' | 'completed' | 'error' | 'cancelled'
+  status: 'idle' | 'progress' | 'completed' | 'error' | 'cancelled'
   // 各阶段文件数量
   filesToAdd?: number
   filesToUpdate?: number

@@ -110,7 +110,7 @@ export const systemApi = {
   // 获取扫描进度
   getScanProgress: () => {
     return apiClient.get<{
-      scanning: boolean
+      status: string
       phase?: string
       totalFiles: number
       successCount: number
