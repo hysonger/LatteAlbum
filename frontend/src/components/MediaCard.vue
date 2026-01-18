@@ -1,5 +1,5 @@
 <template>
-  <div class="media-card" @click="$emit('click', item)">
+  <div class="media-card" ref="cardRef" @click="$emit('click', item)">
     <div class="thumbnail-container">
       <img 
         v-if="thumbnailUrl" 
@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { fileApi } from '@/services/api'
 import type { MediaFile } from '@/types'
 
@@ -34,14 +34,16 @@ defineEmits<{
   (e: 'click', item: MediaFile): void
 }>()
 
+const cardRef = ref<HTMLElement | null>(null)
 const thumbnailUrl = ref<string | null>(null)
 const isLoading = ref(false)
 const isLoaded = ref(false)
+const observer = ref<IntersectionObserver | null>(null)
 
 // 计算缩略图URL
 const loadThumbnail = async () => {
   if (isLoading.value) return
-  
+
   isLoading.value = true
   try {
     const response = await fileApi.getThumbnail(props.item.id, props.thumbnailSize || 'small')
@@ -53,8 +55,6 @@ const loadThumbnail = async () => {
     isLoading.value = false
   }
 }
-
-
 
 const onImageLoad = () => {
   isLoaded.value = true
@@ -71,7 +71,30 @@ const formatDuration = (seconds: number) => {
 }
 
 onMounted(() => {
-  loadThumbnail()
+  // 使用 Intersection Observer 实现懒加载
+  observer.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          loadThumbnail()
+          // 加载后取消观察，避免重复触发
+          observer.value?.unobserve(entry.target)
+        }
+      })
+    },
+    {
+      rootMargin: '200px', // 提前 200px 开始加载
+      threshold: 0
+    }
+  )
+
+  if (cardRef.value) {
+    observer.value.observe(cardRef.value)
+  }
+})
+
+onUnmounted(() => {
+  observer.value?.disconnect()
 })
 </script>
 

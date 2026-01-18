@@ -1,17 +1,23 @@
 <template>
   <div class="gallery-container" ref="container">
-    <div 
-      v-for="column in columns" 
-      :key="column.id" 
+    <div
+      v-for="column in columns"
+      :key="column.id"
       class="gallery-column"
     >
-      <MediaCard 
-        v-for="item in column.items" 
+      <MediaCard
+        v-for="item in column.items"
         :key="item.id"
         :item="item"
         :thumbnail-size="thumbnailSize"
         @click="handleClick(item)"
       />
+      <!-- 列底部哨兵，用于触发加载更多 -->
+      <div
+        v-if="displayHasMore"
+        :ref="(el) => setColumnSentinel(el, column.id)"
+        class="column-sentinel"
+      ></div>
     </div>
     <div v-if="displayIsLoading" class="loading">
       <div class="spinner"></div>
@@ -58,6 +64,11 @@ const props = withDefaults(defineProps<Props>(), {
 const container = ref<HTMLElement>()
 const columnCount = ref(4)
 
+// 列哨兵引用集合
+const columnSentinels = ref<Map<number, HTMLElement>>(new Map())
+const sentinelObserver = ref<IntersectionObserver | null>(null)
+let isLoadingMore = false // 防止重复触发加载更多
+
 // 计算缩略图尺寸
 const thumbnailSize = computed(() => {
   const width = window.innerWidth
@@ -88,7 +99,7 @@ const columnWidth = ref(200) // 初始默认值
 // 计算实际列宽度
 const updateColumnWidth = () => {
   if (!container.value) return
-  
+
   const containerWidth = container.value.offsetWidth
   const gap = 10 // 与CSS中的gap值一致
   const totalGapWidth = gap * (columnCount.value - 1)
@@ -100,7 +111,45 @@ const updateColumnWidth = () => {
 const updateLayout = debounce(() => {
   updateColumnCount()
   updateColumnWidth()
+  // 布局变化后需要重新观察所有哨兵
+  reobserveSentinels()
 }, 100) // 100ms防抖，避免频繁重排
+
+// 设置列哨兵引用
+const setColumnSentinel = (el: any, columnId: number) => {
+  if (el) {
+    columnSentinels.value.set(columnId, el)
+  } else {
+    columnSentinels.value.delete(columnId)
+  }
+}
+
+// 重新观察所有哨兵
+const reobserveSentinels = () => {
+  if (!sentinelObserver.value) return
+
+  // 取消观察所有现有哨兵
+  columnSentinels.value.forEach((el) => {
+    sentinelObserver.value?.unobserve(el)
+  })
+
+  // 重新观察所有哨兵
+  columnSentinels.value.forEach((el) => {
+    sentinelObserver.value?.observe(el)
+  })
+}
+
+// 触发加载更多
+const loadMore = () => {
+  if (props.enableScrollLoad && !isLoadingMore && displayHasMore.value) {
+    isLoadingMore = true
+    emit('load-more')
+    // 延迟重置，防止快速连续触发
+    setTimeout(() => {
+      isLoadingMore = false
+    }, 500)
+  }
+}
 
 const columns = computed(() => {
   // 初始化列数组
@@ -108,7 +157,7 @@ const columns = computed(() => {
     id: i,
     items: [] as MediaFile[]
   }))
-  
+
   // 按顺序分配算法：将图片按顺序依次分配到每一列
   // 这样可以确保在纵向方向上图片是从新到旧排序的
   displayItems.value.forEach((item, index) => {
@@ -116,24 +165,9 @@ const columns = computed(() => {
     const columnIndex = index % columnCount.value
     cols[columnIndex].items.push(item)
   })
-  
+
   return cols
 })
-
-// 滚动加载 - 防抖处理
-const handleScroll = debounce(() => {
-  if (props.enableScrollLoad && !displayIsLoading.value && displayHasMore.value) {
-    const scrollTop = document.documentElement.scrollTop || document.body.scrollTop
-    const clientHeight = document.documentElement.clientHeight
-    const scrollHeight = document.documentElement.scrollHeight
-    
-    // 当滚动到底部附近时加载更多
-    if (scrollTop + clientHeight >= scrollHeight - 200) {
-      // 触发自定义事件，由父组件处理加载逻辑
-      emit('load-more')
-    }
-  }
-}, 150) // 150ms防抖，避免频繁触发加载
 
 // 定义事件
 const emit = defineEmits<{
@@ -155,7 +189,26 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => {
-  window.addEventListener('scroll', handleScroll)
+  // 初始化哨兵 Observer
+  sentinelObserver.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          loadMore()
+        }
+      })
+    },
+    {
+      rootMargin: '400px', // 提前 400px 触发加载更多
+      threshold: 0
+    }
+  )
+
+  // 观察所有列哨兵
+  columnSentinels.value.forEach((el) => {
+    sentinelObserver.value?.observe(el)
+  })
+
   window.addEventListener('resize', updateLayout)
   window.addEventListener('keydown', handleKeydown)
   // 使用requestAnimationFrame确保DOM已渲染
@@ -166,7 +219,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  window.removeEventListener('scroll', handleScroll)
+  sentinelObserver.value?.disconnect()
   window.removeEventListener('resize', updateLayout)
   window.removeEventListener('keydown', handleKeydown)
 })
@@ -209,5 +262,10 @@ onUnmounted(() => {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+.column-sentinel {
+  height: 1px;
+  width: 100%;
 }
 </style>

@@ -338,9 +338,9 @@ frontend/src/
 ├── views/
 │   └── HomeView.vue     # Main page with Gallery + PhotoViewer
 ├── components/
-│   ├── Gallery.vue      # Masonry layout gallery
+│   ├── Gallery.vue      # Masonry layout gallery with lazy loading
 │   ├── PhotoViewer.vue  # Fullscreen viewer
-│   ├── MediaCard.vue    # Thumbnail card
+│   ├── MediaCard.vue    # Thumbnail card with Intersection Observer
 │   └── DateNavigator.vue # Calendar date picker
 ├── stores/
 │   └── gallery.ts       # Pinia store for gallery state
@@ -350,6 +350,86 @@ frontend/src/
 └── types/
     └── index.ts         # TypeScript interfaces
 ```
+
+### Gallery Lazy Loading Optimization
+
+The gallery implements two-level lazy loading for optimal performance:
+
+#### 1. Thumbnail Lazy Loading (MediaCard.vue)
+
+Each `MediaCard` uses `IntersectionObserver` to load thumbnails only when they enter the viewport:
+
+```typescript
+// MediaCard.vue
+onMounted(() => {
+  observer.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          loadThumbnail()
+          observer.value?.unobserve(entry.target)  // Stop observing after load
+        }
+      })
+    },
+    { rootMargin: '200px', threshold: 0 }  // Preload 200px before entering viewport
+  )
+
+  if (cardRef.value) {
+    observer.value.observe(cardRef.value)
+  }
+})
+```
+
+**Benefits**:
+- Reduces initial bandwidth usage
+- Only loads images visible or near-visible in viewport
+- Improves scrolling performance on large albums
+
+#### 2. Infinite Scroll Trigger (Gallery.vue)
+
+Instead of scroll event listeners, each gallery column has a sentinel element observed by `IntersectionObserver`:
+
+```typescript
+// Gallery.vue - Template
+<div
+  v-for="column in columns"
+  :key="column.id"
+  class="gallery-column"
+>
+  <MediaCard ... />
+  <!-- Sentinel at bottom of each column -->
+  <div
+    v-if="displayHasMore"
+    :ref="(el) => setColumnSentinel(el, column.id)"
+    class="column-sentinel"
+  ></div>
+</div>
+
+// Script
+sentinelObserver.value = new IntersectionObserver(
+  (entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        loadMore()
+      }
+    })
+  },
+  { rootMargin: '400px', threshold: 0 }  // Trigger 400px before reaching bottom
+)
+```
+
+**Benefits**:
+- More efficient than scroll event listeners (no scroll throttling needed)
+- Triggers loading when any column approaches viewport bottom
+- Eliminates blank gaps in waterfall layout
+- Layout changes trigger re-observation of sentinels
+
+**Comparison**:
+| Metric | Before | After |
+|--------|--------|-------|
+| Initial requests | All visible + off-screen | Only viewport + 200px |
+| Scroll trigger | Scroll event + debounce | IntersectionObserver |
+| Trigger point | Page bottom - 200px | Any column bottom + 400px |
 
 ### Thumbnail Size System
 
