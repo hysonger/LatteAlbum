@@ -1038,13 +1038,17 @@ export interface MediaFile {
 }
 ```
 
-## Common Development Guideline
+## Guidelines
+
+Before taking ANY motivating change, understand the following guidelines first.
+
+### Common Development Guideline
 
  - When modifing any existing code that could infect any existing logic or behavior, do not ignore any potential side effect. MAKE SURE  to check all the relevant code, or serious bugs might be introduced.
  - After any massive code change, e.g. feature and refactor, or critical logical change & breaking change, MAKE SURE to check and update the logical design to CLAUDE.md for future reference.
  - If you have multiple approach for a hard or systematic problem, programming an rust example to test if it could work in the first place is a good idea.
 
-## Rust Development Guideline
+### Rust Development Guideline
 
 Before using any crates, make sure to accomplish the following steps:
 
@@ -1054,15 +1058,20 @@ Before using any crates, make sure to accomplish the following steps:
 
 Remember, just starting developing the code without reading the documentation may lead to unexpected errors or bugs, which is NOT ACCPETABLE. Rust has a decent documentation system, make nice use of it.
 
-## Debug Guideline
+### Debug Guideline
 
  - Debugging must be wide-range, detailed and cautious. Never omit any relevant information and suspicious code when debugging.
  - For those difficult-to-debug issues, giving arbitrary conclusions for the problem is COMPLETELY unacceptable. 
-   - You should be clear that you are an AI assistant and lack of outer information, might make mistakes from time to time. 
+   - You should be clear that you are an AI assistant and lack of outer information, might make mistakes and wrong decisions from time to time. 
    - Give final conclusions only when you are totally sure you do build up a completed, trusted evidence chain towards the reason. 
  - Feel free to ask me the user for more information or necessary manual operation if needed.
  - Do not hesitate to add well-detailed debug information, e.g. error messages, stack traces, or any other relevant details when lack of information. 
  
- ## Frontend Design Guideline
+ ### Frontend Design Guideline
 
- The design principle of the frontend is to keep it elegant, simple to use, and match with the human intuition. By default the UI should not contain too much bloated information, only show detail when user open the detail view. The detail view should be well organized and easy to read, and the entry is easy to find.
+  - The design principle of the frontend is to keep it elegant, simple to use, and match with the human intuition. 
+  - By default the UI should not contain too much bloated information, only show detail when user open the detail view. The detail view should be well organized and easy to read, and the entry is easy to find.
+
+ ### Git Commit Guideline
+
+ DO NOT COMMIT ALL the files. Only commit the files modified in the current conversation.

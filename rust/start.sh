@@ -20,4 +20,4 @@ export LATTE_STATIC_DIR="${LATTE_STATIC_DIR:-$(cd .. && pwd)/frontend/dist}"
 mkdir -p "$(dirname "$LATTE_DB_PATH")"
 mkdir -p "$LATTE_CACHE_DIR"
 
-cargo run
+cargo run 2>&1 | tee "output.log"
