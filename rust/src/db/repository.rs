@@ -280,50 +280,6 @@ impl<'a> MediaFileRepository<'a> {
         Ok(count == 0)
     }
 
-    /// Batch check file existence - returns HashMap of path -> Option<MediaFile>
-    /// Uses individual queries to avoid SQLx dynamic query issues
-    pub async fn batch_find_by_paths(&self, paths: &[PathBuf]) -> Result<std::collections::HashMap<String, Option<MediaFile>>, sqlx::Error> {
-        use std::collections::HashMap;
-
-        if paths.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let mut result: HashMap<String, Option<MediaFile>> = HashMap::new();
-
-        // Query each path individually to avoid SQLx dynamic query issues
-        for path in paths {
-            let path_str = path.to_string_lossy().to_string();
-
-            match sqlx::query_as::<_, MediaFile>(
-                "SELECT * FROM media_files WHERE file_path = ?"
-            )
-            .bind(path_str.as_str())
-            .fetch_optional(self.db.get_pool())
-            .await
-            {
-                Ok(Some(file)) => {
-                    result.insert(path_str.clone(), Some(file));
-                }
-                Ok(None) => {
-                    result.insert(path_str.clone(), None);
-                }
-                Err(e) => {
-                    tracing::warn!("Query failed for path {}: {}", path_str, e);
-                    result.insert(path_str.clone(), None);
-                }
-            }
-        }
-
-        let total_found = result.values().filter(|v| v.is_some()).count();
-        let total_missing = result.values().filter(|v| v.is_none()).count();
-
-        tracing::debug!("batch_find_by_paths: {} paths, {} found, {} not found",
-            paths.len(), total_found, total_missing);
-
-        Ok(result)
-    }
-
     /// Batch check file existence using single SQL query with IN clause
     /// Uses QueryBuilder for efficient bulk SELECT
     pub async fn batch_find_by_paths_batch(&self, paths: &[PathBuf]) -> Result<Vec<MediaFile>, sqlx::Error> {
@@ -552,7 +508,8 @@ impl<'a> DirectoryRepository<'a> {
 
     /// Delete directories not in the given path list
     pub async fn delete_missing(&self, existing_paths: &[String]) -> Result<u64, sqlx::Error> {
-        use std::collections::HashSet;
+        use sqlx::QueryBuilder;
+        use sqlx::Sqlite;
 
         // 如果没有现有目录，删除所有目录
         if existing_paths.is_empty() {
@@ -562,26 +519,21 @@ impl<'a> DirectoryRepository<'a> {
             return Ok(result.rows_affected());
         }
 
-        // 将 existing_paths 转为 HashSet 用于快速查找
-        let existing_set: HashSet<&str> = existing_paths.iter().map(|s| s.as_str()).collect();
+        // 使用批量 DELETE ... WHERE path NOT IN (...) 替代逐条删除
+        // SQLite: 32766 参数限制
+        const MAX_PARAMS: usize = 32766;
 
-        // 查询所有需要保留的目录路径
-        let existing_dirs: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT path FROM directories"
-        )
-        .fetch_all(self.db.get_pool())
-        .await?;
-
-        // 逐条删除不存在的目录
         let mut deleted = 0;
-        for path in existing_dirs {
-            if !existing_set.contains(path.as_str()) {
-                sqlx::query("DELETE FROM directories WHERE path = ?")
-                    .bind(&path)
-                    .execute(self.db.get_pool())
-                    .await?;
-                deleted += 1;
-            }
+        for chunk in existing_paths.chunks(MAX_PARAMS) {
+            let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
+                "DELETE FROM directories WHERE path NOT IN "
+            );
+            query_builder.push_tuples(chunk.iter(), |mut b, path| {
+                b.push_bind(path.as_str());
+            });
+            let query = query_builder.build();
+            let result = query.execute(self.db.get_pool()).await?;
+            deleted += result.rows_affected();
         }
 
         Ok(deleted)

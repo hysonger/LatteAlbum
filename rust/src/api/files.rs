@@ -142,7 +142,6 @@ pub async fn get_thumbnail(
     use axum::http::StatusCode;
     use axum::response::Response;
     use std::fmt::Write;
-    use std::path::Path;
     use tokio::fs::File;
     use tokio_util::io::ReaderStream;
 

@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::db::{DatabasePool, MediaFile, MediaFileRepository};
-use crate::processors::ProcessorRegistry;
+use crate::processors::{MediaMetadata, ProcessorRegistry};
 use crate::websocket::{ScanStateManager, ScanPhase};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::fs;
 use tokio::sync::Semaphore;
@@ -524,6 +524,46 @@ impl ScanService {
         all_results
     }
 
+    /// Build a MediaFile from metadata extracted from a file.
+    /// This function consolidates the MediaFile creation logic that was duplicated
+    /// across extract_single_metadata, process_file_to_result, and process_file.
+    fn build_media_file(
+        path: &Path,
+        file_name: String,
+        file_type: &str,
+        file_metadata: &MediaMetadata,
+        format_metadata: &MediaMetadata,
+    ) -> MediaFile {
+        let mut media_file = MediaFile::new(
+            path.to_string_lossy().to_string(),
+            file_name,
+            file_type.to_string(),
+        );
+
+        // Apply file metadata (file_size, create_time, modify_time)
+        media_file.file_size = file_metadata.file_size;
+        media_file.create_time = file_metadata.create_time;
+        media_file.modify_time = file_metadata.modify_time;
+
+        // Apply format-specific metadata
+        media_file.mime_type = format_metadata.mime_type.clone();
+        media_file.width = format_metadata.width;
+        media_file.height = format_metadata.height;
+        media_file.exif_timestamp = format_metadata.exif_timestamp;
+        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset.clone();
+        media_file.camera_make = format_metadata.camera_make.clone();
+        media_file.camera_model = format_metadata.camera_model.clone();
+        media_file.lens_model = format_metadata.lens_model.clone();
+        media_file.exposure_time = format_metadata.exposure_time.clone();
+        media_file.aperture = format_metadata.aperture.clone();
+        media_file.iso = format_metadata.iso;
+        media_file.focal_length = format_metadata.focal_length.clone();
+        media_file.duration = format_metadata.duration;
+        media_file.video_codec = format_metadata.video_codec.clone();
+
+        media_file
+    }
+
     /// Extract metadata for a single file
     /// Uses spawn_blocking for synchronous file metadata extraction to avoid blocking async runtime
     async fn extract_single_metadata(
@@ -548,7 +588,7 @@ impl ScanService {
 
         let format_metadata = processor.process(&path_buf).await?;
 
-        // Create media file
+        // Build MediaFile using consolidated helper function
         let file_name = path_buf.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
@@ -560,78 +600,15 @@ impl ScanService {
             "image"
         };
 
-        let mut media_file = MediaFile::new(
-            path_buf.to_string_lossy().to_string(),
+        let media_file = Self::build_media_file(
+            &path_buf,
             file_name,
-            file_type.to_string(),
+            file_type,
+            &file_metadata,
+            &format_metadata,
         );
 
-        // Apply metadata
-        media_file.file_size = file_metadata.file_size;
-        media_file.create_time = file_metadata.create_time;
-        media_file.modify_time = file_metadata.modify_time;
-
-        media_file.mime_type = format_metadata.mime_type;
-        media_file.width = format_metadata.width;
-        media_file.height = format_metadata.height;
-        media_file.exif_timestamp = format_metadata.exif_timestamp;
-        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset;
-        media_file.camera_make = format_metadata.camera_make;
-        media_file.camera_model = format_metadata.camera_model;
-        media_file.lens_model = format_metadata.lens_model;
-        media_file.exposure_time = format_metadata.exposure_time;
-        media_file.aperture = format_metadata.aperture;
-        media_file.iso = format_metadata.iso;
-        media_file.focal_length = format_metadata.focal_length;
-        media_file.duration = format_metadata.duration;
-        media_file.video_codec = format_metadata.video_codec;
-
         Ok(media_file)
-    }
-
-    /// Batch write results to database
-    async fn batch_write_results(&self, results: Vec<ProcessingResult>, total: u64) {
-        const BATCH_SIZE: usize = 100;
-        let repo = MediaFileRepository::new(&self.db);
-
-        let mut success_count = 0u64;
-        let mut failure_count = 0u64;
-
-        for chunk in results.chunks(BATCH_SIZE) {
-            if self.is_cancelled.load(Ordering::SeqCst) {
-                break;
-            }
-
-            // Collect successful results
-            let files: Vec<MediaFile> = chunk.iter()
-                .filter_map(|r| r.success.clone())
-                .collect();
-
-            // Write successful files
-            if !files.is_empty() {
-                match repo.batch_upsert(&files).await {
-                    Ok(_) => {
-                        success_count += files.len() as u64;
-                    }
-                    Err(e) => {
-                        tracing::error!("Batch upsert failed: {}", e);
-                        failure_count += files.len() as u64;
-                    }
-                }
-            }
-
-            // Count failures
-            for r in chunk {
-                if r.success.is_none() {
-                    failure_count += 1;
-                    tracing::debug!("Failed to process {}: {}", r.path.display(), r.error.clone().unwrap_or_default());
-                }
-            }
-
-            // Update counters
-            self.success_count.store(success_count, Ordering::SeqCst);
-            self.failure_count.store(failure_count, Ordering::SeqCst);
-        }
     }
 
     /// Batch write results to database and update last_scanned for unchanged files
@@ -766,29 +743,13 @@ impl ScanService {
             "image"
         };
 
-        let mut media_file = MediaFile::new(
-            path.to_string_lossy().to_string(),
+        let media_file = Self::build_media_file(
+            path,
             file_name,
-            file_type.to_string(),
+            file_type,
+            &file_metadata,
+            &format_metadata,
         );
-
-        media_file.file_size = file_metadata.file_size;
-        media_file.create_time = file_metadata.create_time;
-        media_file.modify_time = file_metadata.modify_time;
-        media_file.mime_type = format_metadata.mime_type;
-        media_file.width = format_metadata.width;
-        media_file.height = format_metadata.height;
-        media_file.exif_timestamp = format_metadata.exif_timestamp;
-        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset;
-        media_file.camera_make = format_metadata.camera_make;
-        media_file.camera_model = format_metadata.camera_model;
-        media_file.lens_model = format_metadata.lens_model;
-        media_file.exposure_time = format_metadata.exposure_time;
-        media_file.aperture = format_metadata.aperture;
-        media_file.iso = format_metadata.iso;
-        media_file.focal_length = format_metadata.focal_length;
-        media_file.duration = format_metadata.duration;
-        media_file.video_codec = format_metadata.video_codec;
 
         Ok(ProcessingResult {
             path: path.to_path_buf(),
@@ -857,29 +818,13 @@ impl ScanService {
             "image"
         };
 
-        let mut media_file = MediaFile::new(
-            path.to_string_lossy().to_string(),
+        let media_file = Self::build_media_file(
+            path,
             file_name,
-            file_type.to_string(),
+            file_type,
+            &file_metadata,
+            &format_metadata,
         );
-
-        media_file.file_size = file_metadata.file_size;
-        media_file.create_time = file_metadata.create_time;
-        media_file.modify_time = file_metadata.modify_time;
-        media_file.mime_type = format_metadata.mime_type;
-        media_file.width = format_metadata.width;
-        media_file.height = format_metadata.height;
-        media_file.exif_timestamp = format_metadata.exif_timestamp;
-        media_file.exif_timezone_offset = format_metadata.exif_timezone_offset;
-        media_file.camera_make = format_metadata.camera_make;
-        media_file.camera_model = format_metadata.camera_model;
-        media_file.lens_model = format_metadata.lens_model;
-        media_file.exposure_time = format_metadata.exposure_time;
-        media_file.aperture = format_metadata.aperture;
-        media_file.iso = format_metadata.iso;
-        media_file.focal_length = format_metadata.focal_length;
-        media_file.duration = format_metadata.duration;
-        media_file.video_codec = format_metadata.video_codec;
 
         repo.upsert(&media_file).await?;
         Ok(())

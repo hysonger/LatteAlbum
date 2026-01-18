@@ -1,7 +1,7 @@
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::ProcessorRegistry;
 use crate::services::{CacheService, TranscodingPool};
-use std::path::Path;
+use bytes::Bytes;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -78,7 +78,9 @@ impl FileService {
                     if is_full_size && is_browser_native_format(&file.file_name) {
                         if let Ok(data) = tokio::fs::read(path).await {
                             let mime_type = guess_mime_type(&file.file_name);
-                            let _ = self.cache.put_thumbnail(file_id, &size_label, &data).await;
+                            // Cache the data (Bytes::from takes ownership, so we clone for return)
+                            let cache_data = Bytes::from(data.clone());
+                            let _ = self.cache.put_thumbnail_bytes(file_id, &size_label, cache_data).await;
                             return Ok(Some((data, mime_type)));
                         }
                     }
@@ -88,7 +90,9 @@ impl FileService {
                         match processor.generate_thumbnail(path, target_width, 0.8).await {
                             Ok(Some(thumbnail_data)) => {
                                 // Cache the generated thumbnail (all sizes including full)
-                                let _ = self.cache.put_thumbnail(file_id, &size_label, &thumbnail_data).await;
+                                // Clone for caching since we need to return the original data
+                                let cache_data = Bytes::from(thumbnail_data.clone());
+                                let _ = self.cache.put_thumbnail_bytes(file_id, &size_label, cache_data).await;
                                 return Ok(Some((thumbnail_data, "image/jpeg".to_string())));
                             }
                             Ok(None) => {
