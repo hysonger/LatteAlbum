@@ -1,6 +1,6 @@
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::ProcessorRegistry;
-use crate::services::{CacheService, TranscodingPool};
+use crate::services::CacheService;
 use bytes::Bytes;
 use std::sync::Arc;
 use tracing::debug;
@@ -11,8 +11,6 @@ pub struct FileService {
     db: DatabasePool,
     cache: Arc<CacheService>,
     processors: Arc<ProcessorRegistry>,
-    #[allow(dead_code)]
-    transcoding_pool: Arc<TranscodingPool>,
 }
 
 impl FileService {
@@ -20,13 +18,11 @@ impl FileService {
         db: DatabasePool,
         cache: Arc<CacheService>,
         processors: Arc<ProcessorRegistry>,
-        transcoding_pool: Arc<TranscodingPool>,
     ) -> Self {
         Self {
             db,
             cache,
             processors,
-            transcoding_pool,
         }
     }
 }

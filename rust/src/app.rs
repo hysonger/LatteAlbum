@@ -79,7 +79,6 @@ impl App {
             db.clone(),
             cache_service.clone(),
             processors.clone(),
-            transcoding_pool.clone(),
         ));
 
         let state = AppState {
