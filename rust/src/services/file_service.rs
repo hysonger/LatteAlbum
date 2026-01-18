@@ -30,22 +30,23 @@ impl FileService {
 /// Service for file operations - methods
 impl FileService {
     /// Get thumbnail for a file
-    /// For "full" size (target_width == 0), browser-native formats are served directly without transcoding
+    /// For "full" size (target_size == 0), browser-native formats are served directly without transcoding
     /// (JPEG, PNG, GIF, WebP, AVIF, SVG). Other formats like HEIC/HEIF will be transcoded.
     /// Returns (data, mime_type) tuple. For thumbnails, mime_type is "image/jpeg".
     pub async fn get_thumbnail(
         &self,
         file_id: &str,
-        target_width: u32,
+        target_size: u32,
+        fit_to_height: bool,
     ) -> Result<Option<(Vec<u8>, String)>, Box<dyn std::error::Error>> {
         // Check if this is a full-size request
-        let is_full_size = target_width == 0;
+        let is_full_size = target_size == 0;
 
         // Determine size label for caching
         let size_label = if is_full_size {
             "full".to_string()
         } else {
-            match target_width {
+            match target_size {
                 w if w <= 300 => "small".to_string(),
                 w if w <= 450 => "medium".to_string(),
                 _ => "large".to_string(),
@@ -84,7 +85,7 @@ impl FileService {
 
                     // Generate thumbnail using processor (which uses transcoding_pool internally)
                     if let Some(processor) = self.processors.find_processor(path) {
-                        match processor.generate_thumbnail(path, target_width, 0.8).await {
+                        match processor.generate_thumbnail(path, target_size, 0.8, fit_to_height).await {
                             Ok(Some(thumbnail_data)) => {
                                 // Cache the generated thumbnail (all sizes including full)
                                 // Clone for caching since we need to return the original data

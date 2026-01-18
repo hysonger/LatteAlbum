@@ -198,8 +198,9 @@ impl MediaProcessor for StandardImageProcessor {
     async fn generate_thumbnail(
         &self,
         path: &Path,
-        target_width: u32,
+        target_size: u32,
         quality: f32,
+        fit_to_height: bool,
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
@@ -207,14 +208,22 @@ impl MediaProcessor for StandardImageProcessor {
 
             let img = ImageReader::open(path)?.decode()?;
 
-            // If target_width is 0, return full-size transcoded image (no resize)
-            let result_img = if target_width == 0 {
-                // Full size - just convert to RGB JPEG without resizing
+            // If target_size is 0, return full-size transcoded image (no resize)
+            let result_img = if target_size == 0 {
                 img.to_rgb8()
             } else {
-                // Use thumbnail() method - fast integer algorithm, ~2x faster than resize(Triangle)
-                // thumbnail() maintains aspect ratio and uses efficient downscaling
-                let thumb = img.thumbnail(target_width, target_width);
+                // thumbnail(w, h) - 缩放到不超过 w×h 范围，保持宽高比
+                let thumb = if fit_to_height {
+                    // fit_to_height=true: 按固定高度缩放
+                    // 目标高度 = target_size，需要计算对应的宽度
+                    let ratio = img.width() as f64 / img.height() as f64;
+                    let target_width = (target_size as f64 * ratio) as u32;
+                    img.thumbnail(target_width, target_size)
+                } else {
+                    // fit_to_height=false: 按固定宽度缩放
+                    // 目标宽度 = target_size，高度按比例计算
+                    img.thumbnail(target_size, u32::MAX)
+                };
                 thumb.to_rgb8()
             };
 

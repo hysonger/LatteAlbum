@@ -81,8 +81,9 @@ impl MediaProcessor for VideoProcessor {
     async fn generate_thumbnail(
         &self,
         path: &Path,
-        _target_width: u32,
+        _target_size: u32,
         _quality: f32,
+        _fit_to_height: bool,
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         #[cfg(feature = "video-processing")]
         {
@@ -90,7 +91,7 @@ impl MediaProcessor for VideoProcessor {
             let ffmpeg_path = self.ffmpeg_path.clone();
 
             return tokio::task::spawn_blocking(move || {
-                generate_video_thumbnail(&path, target_width, ffmpeg_path.as_deref())
+                generate_video_thumbnail(&path, _target_size, ffmpeg_path.as_deref())
             })
             .await
             .map_err(|e| ProcessingError::Processing(e.to_string()))?;

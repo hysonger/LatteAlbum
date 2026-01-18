@@ -74,11 +74,13 @@ pub trait MediaProcessor: Send + Sync {
     async fn process(&self, path: &Path) -> Result<MediaMetadata, ProcessingError>;
 
     /// Generate a thumbnail for the file
+    /// fit_to_height: true = 按固定高度缩放（保持宽高比），false = 按固定宽度缩放
     async fn generate_thumbnail(
         &self,
         path: &Path,
-        target_width: u32,
+        target_size: u32,
         quality: f32,
+        fit_to_height: bool,
     ) -> Result<Option<Vec<u8>>, ProcessingError>;
 }
 

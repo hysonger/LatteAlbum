@@ -69,8 +69,9 @@ impl MediaProcessor for HeifImageProcessor {
     async fn generate_thumbnail(
         &self,
         path: &Path,
-        target_width: u32,
+        target_size: u32,
         quality: f32,
+        fit_to_height: bool,
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         let path = path.to_path_buf();
         let pool = self.transcoding_pool.clone();
@@ -80,12 +81,12 @@ impl MediaProcessor for HeifImageProcessor {
             // Run in transcoding pool (rayon thread)
             pool.scope(|_| {
                 // Synchronous HEIC transcoding logic
-                transcoding_generate_heic_thumbnail(&path, target_width, quality)
+                transcoding_generate_heic_thumbnail(&path, target_size, quality, fit_to_height)
             })
         } else {
             // Fallback to spawn_blocking
             tokio::task::spawn_blocking(move || {
-                transcoding_generate_heic_thumbnail(&path, target_width, quality)
+                transcoding_generate_heic_thumbnail(&path, target_size, quality, fit_to_height)
             })
             .await
             .map_err(|e| ProcessingError::Processing(e.to_string()))?
@@ -96,8 +97,9 @@ impl MediaProcessor for HeifImageProcessor {
 /// Synchronous HEIC thumbnail generation for transcoding pool
 fn transcoding_generate_heic_thumbnail(
     path: &Path,
-    target_width: u32,
+    target_size: u32,
     quality: f32,
+    fit_to_height: bool,
 ) -> Result<Option<Vec<u8>>, ProcessingError> {
     // Read HEIC file using libheif-rs
     let path_str = path.to_string_lossy();
@@ -115,19 +117,20 @@ fn transcoding_generate_heic_thumbnail(
         None,
     ).map_err(|e| ProcessingError::Processing(e.to_string()))?;
 
-    // If target_width is 0, use full size (no resize)
-    // Otherwise scale to target dimensions
-    let scaled = if target_width == 0 {
-        // Full size - use original dimensions
+    // If target_size is 0, use full size (no resize)
+    let scaled = if target_size == 0 {
         image
     } else {
-        // Calculate target height maintaining aspect ratio
-        let ratio = image.height() as f64 / image.width() as f64;
-        let target_height = (target_width as f64 * ratio) as u32;
-
-        // Scale if needed
-        if image.width() > target_width || image.height() > target_height {
-            image.scale(target_width, target_height, None)
+        let (target_w, target_h) = if fit_to_height {
+            // fit_to_height=true: 按固定高度缩放
+            let ratio = image.width() as f64 / image.height() as f64;
+            ((target_size as f64 * ratio) as u32, target_size)
+        } else {
+            // fit_to_height=false: 按固定宽度缩放
+            (target_size, (target_size as f64 * (image.height() as f64 / image.width() as f64)) as u32)
+        };
+        if image.width() > target_w || image.height() > target_h {
+            image.scale(target_w, target_h, None)
                 .map_err(|e| ProcessingError::Processing(e.to_string()))?
         } else {
             image

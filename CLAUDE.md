@@ -44,7 +44,7 @@ Configure backend via environment variables:
 | `LATTE_STATIC_DIR` | `./static/dist` | Frontend static files |
 | `LATTE_THUMBNAIL_SMALL` | `300` | Small thumbnail width (px) |
 | `LATTE_THUMBNAIL_MEDIUM` | `450` | Medium thumbnail width (px) |
-| `LATTE_THUMBNAIL_LARGE` | `900` | Large thumbnail width (px) |
+| `LATTE_THUMBNAIL_LARGE` | `900` | Large thumbnail height (px) - fixed height, maintains aspect ratio |
 | `LATTE_THUMBNAIL_QUALITY` | `0.8` | JPEG quality (80%) |
 | `LATTE_SCAN_CRON` | `0 0 2 * * ?` | Scheduled scan cron (2 AM daily) |
 | `LATTE_VIDEO_FFMPEG_PATH` | `/usr/bin/ffmpeg` | FFmpeg executable path |
@@ -119,13 +119,25 @@ Processors are registered in `app.rs` via `ProcessorRegistry`. Higher priority m
 
 #### 缩略图生成技术细节
 
+**缩放模式**：
+- `small`/`medium`：按固定宽度缩放，高度按比例计算
+- `large`：按固定高度缩放，宽度按比例计算（适合大图预览占位）
+
 **标准图片 (JPEG/PNG/GIF/WebP/TIFF)** (`image_processor.rs`):
 ```rust
 // 使用 image crate 解码
 let img = ImageReader::open(path)?.decode()?;
 
-// 使用 thumbnail() 方法 - 快速整数算法，比 resize(Triangle) 快约 2 倍，但是会存在锯齿
-let thumb = img.thumbnail(target_width, target_width);
+// thumbnail(w, h) 缩放到不超过 w×h 范围，保持宽高比
+let thumb = if fit_to_height {
+    // fit_to_height=true: 按固定高度缩放
+    let ratio = img.width() as f64 / img.height() as f64;
+    let target_width = (target_size as f64 * ratio) as u32;
+    img.thumbnail(target_width, target_size)
+} else {
+    // fit_to_height=false: 按固定宽度缩放
+    img.thumbnail(target_size, u32::MAX)
+};
 
 // 编码为 JPEG
 let encoder = JpegEncoder::new_with_quality(&mut bytes, (quality * 100.0) as u8);
@@ -138,8 +150,18 @@ let ctx = HeifContext::read_from_file(&path_str)?;
 let handle = ctx.primary_image_handle()?;
 let image = lib_heif.decode(&handle, ColorSpace::Rgb(RgbChroma::Rgba), None)?;
 
+// 根据模式计算目标尺寸
+let (target_w, target_h) = if fit_to_height {
+    // fit_to_height=true: 按固定高度缩放
+    let ratio = image.width() as f64 / image.height() as f64;
+    ((target_size as f64 * ratio) as u32, target_size)
+} else {
+    // fit_to_height=false: 按固定宽度缩放
+    (target_size, (target_size as f64 * (image.height() as f64 / image.width() as f64)) as u32)
+};
+
 // 使用 libheif 内置缩放
-let scaled = image.scale(target_width, target_height, None)?;
+let scaled = image.scale(target_w, target_h, None)?;
 
 // 转换为 RGBA → RGB → JPEG
 let rgb_image = DynamicImage::ImageRgba8(rgba_image).to_rgb8();
@@ -329,12 +351,16 @@ frontend/src/
 
 ### Thumbnail Size System
 
-| Size | Width | Use Case |
-|------|-------|----------|
-| `small` | 300px | Grid view thumbnails |
-| `medium` | 450px | Default |
-| `large` | 900px | High-quality preview |
+| Size | Dimension | Use Case |
+|------|-----------|----------|
+| `small` | Width 300px | thumbnails for small screens |
+| `medium` | Width 600px | Default |
+| `large` | Height 900px | High-quality preview (fixed height, maintains aspect ratio) |
 | `full` | 0 (original) | Full-size transcoded for photo viewer |
+
+**缩放行为**：
+- `small`/`medium`：按固定宽度缩放，高度按比例计算
+- `large`：按固定高度缩放，宽度按比例计算
 
 **Full size design**: Returns full-resolution JPEG transcoded from original (saves bandwidth for HEIC). Not cached.
 

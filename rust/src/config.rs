@@ -56,7 +56,7 @@ impl Config {
         let static_dir = get_env_path("LATTE_STATIC_DIR", "./static/dist")?;
 
         let thumbnail_small = get_env_u32("LATTE_THUMBNAIL_SMALL", 300)?;
-        let thumbnail_medium = get_env_u32("LATTE_THUMBNAIL_MEDIUM", 450)?;
+        let thumbnail_medium = get_env_u32("LATTE_THUMBNAIL_MEDIUM", 600)?;
         let thumbnail_large = get_env_u32("LATTE_THUMBNAIL_LARGE", 900)?;
         let thumbnail_quality = get_env_f32("LATTE_THUMBNAIL_QUALITY", 0.8)?;
 

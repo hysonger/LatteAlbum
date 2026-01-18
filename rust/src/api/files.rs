@@ -159,9 +159,9 @@ pub async fn get_thumbnail(
     use tokio::fs::File;
     use tokio_util::io::ReaderStream;
 
-    let thumbnail_size = state
-        .config
-        .get_thumbnail_size(size.size.as_deref().unwrap_or("medium"));
+    let size_str = size.size.as_deref().unwrap_or("medium");
+    let thumbnail_size = state.config.get_thumbnail_size(size_str);
+    let fit_to_height = size_str == "large";  // large size uses fixed height
     let size_label = get_size_label(thumbnail_size);
 
     // 1. Check memory cache first - return directly if hit (already in memory)
@@ -224,7 +224,7 @@ pub async fn get_thumbnail(
     }
 
     // 3. Not in cache - generate thumbnail
-    match state.file_service.get_thumbnail(&id, thumbnail_size).await {
+    match state.file_service.get_thumbnail(&id, thumbnail_size, fit_to_height).await {
         Ok(Some((data, mime_type))) => {
             let mut etag = String::with_capacity(64);
             write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
