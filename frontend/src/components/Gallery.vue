@@ -32,6 +32,7 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import MediaCard from './MediaCard.vue'
 import type { MediaFile } from '@/types'
+import { useScreenSize } from '@/composables/useScreenSize'
 
 // 防抖函数
 const debounce = <T extends (...args: any[]) => any>(
@@ -69,10 +70,12 @@ const columnSentinels = ref<Map<number, HTMLElement>>(new Map())
 const sentinelObserver = ref<IntersectionObserver | null>(null)
 let isLoadingMore = false // 防止重复触发加载更多
 
+// 屏幕尺寸
+const { isMobile, isTablet } = useScreenSize()
+
 // 计算缩略图尺寸
 const thumbnailSize = computed(() => {
-  const width = window.innerWidth
-  return width < 768 ? 'small' : 'medium'
+  return isMobile.value ? 'small' : 'medium'
 })
 
 // 使用传入的items作为唯一数据源
@@ -83,10 +86,9 @@ const displayHasMore = computed(() => props.hasMore)
 
 // 响应式列数计算
 const updateColumnCount = () => {
-  const width = window.innerWidth
-  if (width < 768) {
+  if (isMobile.value) {
     columnCount.value = 2
-  } else if (width < 1024) {
+  } else if (isTablet.value) {
     columnCount.value = 3
   } else {
     columnCount.value = 4

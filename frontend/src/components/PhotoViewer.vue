@@ -152,7 +152,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { fileApi } from '@/services/api'
+import { useScreenSize } from '@/composables/useScreenSize'
 import type { MediaFile } from '@/types'
+
+const { isMobile: isSmallScreen } = useScreenSize()
 
 const props = defineProps<{
   file: MediaFile
@@ -304,47 +307,60 @@ const loadMedia = async () => {
          currentFile.value.fileName.toLowerCase().endsWith('.heif'))
       isConverting.value = isHeif
 
-      // 并行请求 full 和 large，优先显示先返回的
-      // full: 全尺寸转码图（JPEG格式，节省流量）
-      // large: 大尺寸缩略图作为备选/占位图
-      const fullRequest = fileApi.getThumbnail(currentFile.value.id, 'full')
-      const largeRequest = fileApi.getThumbnail(currentFile.value.id, 'large')
+      // 小屏设备只请求 large 尺寸，大屏设备并行请求 full 和 large
+      if (isSmallScreen.value) {
+        // 小屏设备：只使用 large 尺寸，避免加载过大的图片
+        try {
+          const result = await fileApi.getThumbnail(currentFile.value.id, 'large')
+          if (currentGeneration !== loadGeneration) return
+          currentImageUrl.value = URL.createObjectURL(new Blob([result.data]))
+        } catch (e) {
+          console.error('加载媒体文件失败:', e)
+          currentImageUrl.value = undefined
+        }
+      } else {
+        // 大屏设备：并行请求 full 和 large，优先显示先返回的
+        // full: 全尺寸转码图（JPEG格式，节省流量）
+        // large: 大尺寸缩略图作为备选/占位图
+        const fullRequest = fileApi.getThumbnail(currentFile.value.id, 'full')
+        const largeRequest = fileApi.getThumbnail(currentFile.value.id, 'large')
 
-      try {
-        // 使用 Promise.race 竞争，先完成的先处理
-        const winner: { result: { data: BlobPart }; isFull: boolean } = await Promise.race([
-          fullRequest.then(result => ({ result, isFull: true })),
-          largeRequest.then(result => ({ result, isFull: false }))
-        ])
+        try {
+          // 使用 Promise.race 竞争，先完成的先处理
+          const winner: { result: { data: BlobPart }; isFull: boolean } = await Promise.race([
+            fullRequest.then(result => ({ result, isFull: true })),
+            largeRequest.then(result => ({ result, isFull: false }))
+          ])
 
-        // 检查世代是否匹配（可能被翻页中断）
-        if (currentGeneration !== loadGeneration) return
-
-        if (winner.isFull) {
-          // full 先返回，直接显示
-          currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
-        } else {
-          // large 先返回，直接作为占位图显示
-          currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
-
-          // 继续等待 full，完成后替换
-          const fullResult = await fullRequest
-
-          // 再次检查世代是否匹配
+          // 检查世代是否匹配（可能被翻页中断）
           if (currentGeneration !== loadGeneration) return
 
-          currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
-        }
-      } catch {
-        // 如果 full 失败，尝试使用 large 作为备选
-        if (currentImageUrl.value === undefined && currentGeneration === loadGeneration) {
-          try {
-            const largeResult = await largeRequest
+          if (winner.isFull) {
+            // full 先返回，直接显示
+            currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
+          } else {
+            // large 先返回，直接作为占位图显示
+            currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
+
+            // 继续等待 full，完成后替换
+            const fullResult = await fullRequest
+
+            // 再次检查世代是否匹配
             if (currentGeneration !== loadGeneration) return
-            currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
-          } catch (e) {
-            console.error('加载媒体文件失败:', e)
-            currentImageUrl.value = undefined
+
+            currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
+          }
+        } catch {
+          // 如果 full 失败，尝试使用 large 作为备选
+          if (currentImageUrl.value === undefined && currentGeneration === loadGeneration) {
+            try {
+              const largeResult = await largeRequest
+              if (currentGeneration !== loadGeneration) return
+              currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
+            } catch (e) {
+              console.error('加载媒体文件失败:', e)
+              currentImageUrl.value = undefined
+            }
           }
         }
       }

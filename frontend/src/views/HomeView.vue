@@ -286,6 +286,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useGalleryStore } from '@/stores/gallery'
+import { useScreenSize } from '@/composables/useScreenSize'
 import { ElMessageBox } from 'element-plus'
 import Gallery from '@/components/Gallery.vue'
 import DateNavigator from '@/components/DateNavigator.vue'
@@ -376,12 +377,7 @@ const selectedDate = ref('')
 
 // 手机端相关
 const showMobileMenu = ref(false)
-const isMobile = ref(false)
-
-// 检测是否为移动设备
-const checkMobile = () => {
-  isMobile.value = window.innerWidth < 768
-}
+const { isMobile } = useScreenSize()
 
 // 切换手机端菜单
 const toggleMobileMenu = () => {
@@ -624,9 +620,6 @@ onMounted(async () => {
     galleryStore.loadPage(0)
   }
 
-  // 检测移动设备
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
   // 添加点击外部关闭菜单事件
   document.addEventListener('click', handleClickOutside)
 
@@ -675,7 +668,6 @@ onMounted(async () => {
 
 // 清理事件监听
 onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile)
   document.removeEventListener('click', handleClickOutside)
   // 清理 WebSocket
   scanProgressWs.offProgress()
