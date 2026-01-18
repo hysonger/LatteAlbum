@@ -43,7 +43,7 @@
       
       <button class="nav-btn next" @click="next" :disabled="!hasNext">›</button>
       
-      <div class="file-info" v-if="currentFile">
+      <div class="file-info file-info--bottom" v-if="currentFile">
         <div class="info-header">
           <div class="info-basic">
             <h3>{{ currentFile.fileName }}</h3>
@@ -371,6 +371,8 @@ const handleError = () => {
 
 const onVideoMetadataLoaded = () => {
   videoError.value = null
+  // 视频元数据加载后聚焦到 video 元素，使空格键可以控制播放/暂停
+  videoRef.value?.focus()
 }
 
 const onVideoError = (e: Event) => {
@@ -459,10 +461,16 @@ watch(currentFile, () => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     close()
-  } else if (e.key === 'ArrowLeft') {
-    prev()
-  } else if (e.key === 'ArrowRight') {
-    next()
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    // 视频播放时不拦截方向键，让 video 控件自行处理快进快退
+    if (isVideo.value && videoRef.value && !videoRef.value.paused) {
+      return
+    }
+    if (e.key === 'ArrowLeft') {
+      prev()
+    } else {
+      next()
+    }
   }
 }
 
@@ -517,6 +525,10 @@ defineExpose({
   cursor: pointer;
   z-index: 1001;
   backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .nav-btn:hover:not(:disabled) {
@@ -551,6 +563,11 @@ defineExpose({
   object-fit: contain;
 }
 
+/* 视频时减少高度，留出空间给底部文件信息栏 */
+.media-container video {
+  max-height: 75vh;
+}
+
 .video-placeholder {
   display: flex;
   align-items: center;
@@ -570,7 +587,7 @@ defineExpose({
 
 .video-placeholder video {
   max-width: 100%;
-  max-height: 80vh;
+  max-height: 75vh;
 }
 
 .video-error {
@@ -631,10 +648,6 @@ defineExpose({
 }
 
 .file-info {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.7);
   color: white;
   padding: 12px 16px;
@@ -642,6 +655,13 @@ defineExpose({
   max-width: 80%;
   backdrop-filter: blur(5px);
   transition: all 0.3s ease;
+}
+
+.file-info--bottom {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .info-header {
@@ -780,6 +800,10 @@ defineExpose({
   border-radius: 50%;
   cursor: pointer;
   backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .close-btn:hover {

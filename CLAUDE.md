@@ -1076,3 +1076,4 @@ Remember, just starting developing the code without reading the documentation ma
 
   - DO NOT COMMIT ALL the files. Only commit the files modified in the current conversation.
   - When doing major changes, ONLY commit when I comfirm the program works successfully as expected.
+  - The commit message should be clear and concise, in several lines of human-style sentences.
