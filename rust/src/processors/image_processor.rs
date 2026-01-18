@@ -244,11 +244,12 @@ fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> {
 pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
     use exif::Reader;
 
-    let _file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(_) => {
+        Err(e) => {
+            tracing::debug!("[{}] Failed to open file for EXIF: {}", file_name, e);
             return;
         }
     };
@@ -256,9 +257,10 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
     // Use Reader to parse EXIF data from the image file
     let exif = match Reader::new().read_from_container(&mut std::io::BufReader::new(file)) {
         Ok(e) => e,
-        Err(_) => {
+        Err(e) => {
             // HEIC files may have EXIF in non-standard format
-            // This is expected for some HEIC files, so silently skip
+            // Log at debug level since this is expected for some formats
+            tracing::debug!("[{}] No EXIF data available (may be HEIC format issue): {}", file_name, e);
             return;
         }
     };
