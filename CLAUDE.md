@@ -194,7 +194,7 @@ let rgb_image = DynamicImage::ImageRgba8(rgba_image).to_rgb8();
 - HEIC 格式: 复用相同的 `extract_exif()` 函数
 - 支持格式: JPEG, HEIC, TIFF, PNG 等
 
-**已知限制**: 部分 HEIC 文件的 EXIF 数据格式非标准，提取可能失败（记录在 debug 级别日志）
+**已知限制**: 部分 HEIC 文件的 EXIF 数据块体积非常大，可达10KB以上，导致解析失败。kamadak-exif 已经在最新 commit 中修复了此问题，但目前还没有发布新版本。目前采用直接拉取最新代码编译的方式
 
 #### 文件流式传输
 
@@ -237,7 +237,9 @@ Body::from_stream(stream)
 
 #### 1. HEIC stride 优化
 
-libheif 解码 RGBA 数据时可能包含 stride padding（行对齐填充）。当 stride == width * 4 时，数据是紧密排列的，无需复制。
+libheif 解码 RGBA 数据时可能包含 stride padding（行对齐填充）。如果不处理，会导致图片在斜向方向被严重拉伸。
+
+当 stride == width * 4 时，数据是紧密排列的，无需进行处理，可以直接复制。
 
 ```rust
 // heif_processor.rs
