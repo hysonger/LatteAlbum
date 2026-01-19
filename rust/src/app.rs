@@ -66,7 +66,7 @@ impl App {
         ).await?);
 
         // Create transcoding pool for CPU-intensive image processing (MUST be created before processors)
-        let transcoding_pool = Arc::new(TranscodingPool::new(4));
+        let transcoding_pool = Arc::new(TranscodingPool::new(config.transcoding_threads));
 
         // Initialize processor registry with transcoding pool
         let mut processors = ProcessorRegistry::new(Some(transcoding_pool.clone()));

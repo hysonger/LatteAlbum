@@ -48,7 +48,7 @@ Configure backend via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LATTE_THUMBNAIL_SMALL` | `300` | Small thumbnail width (px) |
-| `LATTE_THUMBNAIL_MEDIUM` | `450` | Medium thumbnail width (px) |
+| `LATTE_THUMBNAIL_MEDIUM` | `600` | Medium thumbnail width (px) |
 | `LATTE_THUMBNAIL_LARGE` | `900` | Large thumbnail height (px) - fixed height, maintains aspect ratio |
 | `LATTE_THUMBNAIL_QUALITY` | `0.8` | JPEG quality (0.0-1.0, default 80%) |
 
@@ -58,6 +58,11 @@ Configure backend via environment variables:
 | `LATTE_SCAN_WORKER_COUNT` | (auto) | Override worker count (CPU cores x 2, default) |
 | `LATTE_SCAN_CRON` | `0 0 2 * * ?` | Scheduled scan cron (2 AM daily) |
 | `LATTE_SCAN_BATCH_SIZE` | `50` | Database batch size for scan operations |
+
+### Transcoding Pool Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_TRANSCODING_THREADS` | `4` | Number of threads in Rayon transcoding pool for CPU-intensive image processing |
 
 ### Video Processing Configuration
 | Variable | Default | Description |
@@ -110,7 +115,8 @@ rust/src/
 │   ├── scan_service.rs  # File scanning and metadata extraction
 │   ├── file_service.rs  # File serving and thumbnail generation
 │   ├── cache_service.rs # Moka-based cache management
-│   └── scheduler.rs     # tokio-cron-scheduler for scheduled scans
+│   ├── scheduler.rs     # tokio-cron-scheduler for scheduled scans
+│   └── transcoding_pool.rs # Rayon-based CPU-intensive image processing pool
 ├── processors/          # Media format handlers (plugin architecture)
 │   ├── processor_trait.rs  # MediaProcessor trait
 │   ├── image_processor.rs  # JPEG/PNG/GIF/WebP/TIFF
@@ -135,6 +141,7 @@ rust/src/
 | `ScanStateManager` | Global scan state management and progress broadcasting |
 | `CacheService` | Moka-based thumbnail caching |
 | `Scheduler` | Daily 2 AM scheduled scan |
+| `TranscodingPool` | Rayon-based thread pool for CPU-intensive image processing |
 
 ### Media Processors (Strategy Pattern)
 
@@ -218,6 +225,7 @@ Three-tier caching strategy:
 
 **System Operations**:
 - `POST /api/system/rescan` - Trigger directory rescan
+- `POST /api/system/scan/cancel` - Cancel ongoing scan
 - `GET /api/system/status` - System status
 - `GET /api/system/scan/progress` - Scan progress (HTTP fallback)
 - `WS /ws/scan` - WebSocket for real-time scan progress
@@ -279,7 +287,7 @@ Each gallery column has a sentinel element observed by `IntersectionObserver`:
 | `small` | Width 300px | Small screens |
 | `medium` | Width 600px | Default |
 | `large` | Height 900px | High-quality preview |
-| `full` | 0 (original) | Full-size transcoded for viewer |
+| `full` | 0 (original) | Full-size transcoded output (no resizing) |
 
 ## File Scanning
 
@@ -296,12 +304,15 @@ Each gallery column has a sentinel element observed by `IntersectionObserver`:
 
 ### Thread Pool Isolation (Scan Tasks)
 
-All scan tasks run in a dedicated thread pool, isolated from web service requests:
+All scan tasks run in dedicated thread pools, isolated from web service requests:
 
 | Task Type | Thread Pool | Isolation |
 |-----------|-------------|-----------|
 | Initial/User/Scheduled scan | `spawn_blocking` + dedicated Runtime | Isolated from API/WebSocket |
+| Image transcoding (JPEG/HEIC) | `TranscodingPool` (Rayon, configurable threads) | CPU-intensive tasks |
 | API/WebSocket | Tokio async executor | Isolated from scans |
+
+**Note**: Transcoding pool thread count is configurable via `LATTE_TRANSCODING_THREADS` (default: 4).
 
 ### Modification Time Comparison
 
@@ -432,6 +443,8 @@ Phase labels in Chinese:
 | Streaming | bytes 1, tokio-util 0.7 |
 | Scheduling | tokio-cron-scheduler |
 | EXIF | kamadak-exif |
+| Thread Pool | rayon 1.10 (CPU-intensive image processing) |
+| Date/Time | chrono |
 
 ## Feature Flags
 

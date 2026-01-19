@@ -77,6 +77,10 @@ pub struct Config {
     // === API Configuration ===
     /// Default page size for list API responses (default: 50)
     pub api_default_page_size: usize,
+
+    // === Transcoding Pool Configuration ===
+    /// Number of threads in Rayon transcoding pool for CPU-intensive image processing (default: 4)
+    pub transcoding_threads: usize,
 }
 
 impl Config {
@@ -117,6 +121,8 @@ impl Config {
 
         let api_default_page_size = get_env_usize("LATTE_API_DEFAULT_PAGE_SIZE", 50)?;
 
+        let transcoding_threads = get_env_usize("LATTE_TRANSCODING_THREADS", 4)?;
+
         Ok(Self {
             host,
             port,
@@ -140,6 +146,7 @@ impl Config {
             db_batch_write_size,
             ws_progress_broadcast_interval,
             api_default_page_size,
+            transcoding_threads,
         })
     }
 
@@ -262,7 +269,7 @@ mod tests {
         assert_eq!(Config::default().host, "0.0.0.0");
         assert_eq!(Config::default().port, 8080);
         assert_eq!(Config::default().thumbnail_small, 300);
-        assert_eq!(Config::default().thumbnail_medium, 450);
+        assert_eq!(Config::default().thumbnail_medium, 600);
         assert_eq!(Config::default().thumbnail_large, 900);
     }
 
@@ -270,16 +277,16 @@ mod tests {
     fn test_get_thumbnail_size() {
         let config = Config {
             thumbnail_small: 300,
-            thumbnail_medium: 450,
+            thumbnail_medium: 600,
             thumbnail_large: 900,
             ..Default::default()
         };
 
         assert_eq!(config.get_thumbnail_size("small"), 300);
-        assert_eq!(config.get_thumbnail_size("medium"), 450);
+        assert_eq!(config.get_thumbnail_size("medium"), 600);
         assert_eq!(config.get_thumbnail_size("large"), 900);
         assert_eq!(config.get_thumbnail_size("full"), 0);
-        assert_eq!(config.get_thumbnail_size("unknown"), 450);
+        assert_eq!(config.get_thumbnail_size("unknown"), 600);
     }
 
     #[test]
@@ -302,7 +309,7 @@ mod tests {
         assert_eq!(config.cache_dir, PathBuf::from("./cache"));
         assert_eq!(config.static_dir, PathBuf::from("./static/dist"));
         assert_eq!(config.thumbnail_small, 300);
-        assert_eq!(config.thumbnail_medium, 450);
+        assert_eq!(config.thumbnail_medium, 600);
         assert_eq!(config.thumbnail_large, 900);
         assert_eq!(config.thumbnail_quality, 0.8);
         assert_eq!(config.scan_worker_count, None);
@@ -317,6 +324,19 @@ mod tests {
         assert_eq!(config.db_batch_write_size, 100);
         assert_eq!(config.ws_progress_broadcast_interval, 10);
         assert_eq!(config.api_default_page_size, 50);
+        assert_eq!(config.transcoding_threads, 4);
+    }
+
+    #[test]
+    fn test_transcoding_threads_config() {
+        clear_env_vars();
+        std::env::set_var("LATTE_TRANSCODING_THREADS", "8");
+
+        // Reload config
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.transcoding_threads, 8);
+
+        std::env::remove_var("LATTE_TRANSCODING_THREADS");
     }
 }
 
@@ -330,7 +350,7 @@ impl Default for Config {
             cache_dir: PathBuf::from("./cache"),
             static_dir: PathBuf::from("./static/dist"),
             thumbnail_small: 300,
-            thumbnail_medium: 450,
+            thumbnail_medium: 600,
             thumbnail_large: 900,
             thumbnail_quality: 0.8,
             scan_worker_count: None,
@@ -345,6 +365,7 @@ impl Default for Config {
             db_batch_write_size: 100,
             ws_progress_broadcast_interval: 10,
             api_default_page_size: 50,
+            transcoding_threads: 4,
         }
     }
 }
