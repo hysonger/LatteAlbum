@@ -46,9 +46,9 @@ echo "Copying backend executable..."
 cp rust/target/release/latte-album "$OUTPUT_DIR/"
 
 # 复制配置文件模板
-if [ -f ".env.remote" ]; then
+if [ -f "rust/.env.default" ]; then
   echo "Copying environment file..."
-  cp .env.remote "$OUTPUT_DIR/.env.example"
+  cp rust/.env.default "$OUTPUT_DIR/.env.default"
 fi
 
 # 复制README文件
