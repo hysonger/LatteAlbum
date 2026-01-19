@@ -536,6 +536,8 @@ Before using any crates, make sure to accomplish the following steps:
 
 Remember, just starting developing the code without reading the documentation may lead to unexpected errors or bugs, which is NOT ACCPETABLE. Rust has a decent documentation system, make nice use of it.
 
+After finished the modification, REMEMBER to run `cargo check` and `cargo test` to make sure the program compiles and passes the tests.
+
 ### Debug Guideline
 
  - Debugging must be wide-range, detailed and cautious. Never omit any relevant information and suspicious code when debugging.
