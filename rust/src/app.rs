@@ -194,7 +194,7 @@ impl App {
             tokio::task::spawn_blocking(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    scan_service.scan(true).await;
+                    scan_service.scan().await;
                 });
             });
         }

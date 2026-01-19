@@ -75,9 +75,9 @@ impl ScanService {
         }
     }
 
-    /// Get the concurrency level for parallel scanning
-    fn get_concurrency(&self) -> usize {
-        self.config.scan_concurrency.unwrap_or_else(|| {
+    /// Get the worker count for scan operations
+    fn get_worker_count(&self) -> usize {
+        self.config.scan_worker_count.unwrap_or_else(|| {
             std::thread::available_parallelism()
                 .map(|p| p.get() * 2)
                 .unwrap_or(16)
@@ -85,7 +85,7 @@ impl ScanService {
     }
 
     /// Start a scan operation
-    pub async fn scan(&self, _parallel: bool) {
+    pub async fn scan(&self) {
         tracing::info!("Scanning media files");
         if self.is_scanning.load(Ordering::SeqCst) {
             tracing::warn!("Scan already in progress");
@@ -98,19 +98,15 @@ impl ScanService {
         self.success_count.store(0, Ordering::SeqCst);
         self.failure_count.store(0, Ordering::SeqCst);
 
-        if self.config.scan_parallel {
-            self.perform_scan_parallel().await;
-        } else {
-            self.perform_scan_serial().await;
-        }
+        self.perform_scan().await;
 
         self.is_scanning.store(false, Ordering::SeqCst);
     }
 
-    /// Parallel scan implementation (default)
-    async fn perform_scan_parallel(&self) {
+    /// Scan implementation
+    async fn perform_scan(&self) {
         let scan_start = Instant::now();
-        tracing::info!("Starting parallel scan");
+        tracing::info!("Starting scan");
 
         // 重置计数器，确保每次扫描从0开始
         self.scan_state.reset_counters();
@@ -198,7 +194,7 @@ impl ScanService {
                 self.delete_missing(&files).await;
                 // 发送取消状态
                 self.scan_state.cancelled();
-                tracing::info!("Parallel scan cancelled after writing {} files", success_results);
+                tracing::info!("Scan cancelled after writing {} files", success_results);
                 return;
             }
         } else {
@@ -216,7 +212,7 @@ impl ScanService {
                 self.scan_state.set_phase(ScanPhase::Deleting);
                 self.delete_missing(&files).await;
                 self.scan_state.cancelled();
-                tracing::info!("Parallel scan cancelled during touch phase");
+                tracing::info!("Scan cancelled during touch phase");
                 return;
             }
         }
@@ -231,89 +227,8 @@ impl ScanService {
 
         let processed = self.success_count.load(Ordering::SeqCst) + self.failure_count.load(Ordering::SeqCst);
         let total_duration = scan_start.elapsed();
-        tracing::info!("Parallel scan complete: {} files processed ({} success, {} failed), {} unchanged skipped, total time: {:?}",
+        tracing::info!("Scan complete: {} files processed ({} success, {} failed), {} unchanged skipped, total time: {:?}",
             processed, self.success_count.load(Ordering::SeqCst), self.failure_count.load(Ordering::SeqCst), skip_list.len(), total_duration);
-    }
-
-    /// Serial scan implementation (fallback)
-    async fn perform_scan_serial(&self) {
-        let scan_start = Instant::now();
-        tracing::info!("Starting serial scan (fallback mode)");
-
-        // 重置计数器，确保每次扫描从0开始
-        self.scan_state.reset_counters();
-
-        // Phase 1: Collect all file paths
-        let collect_start = Instant::now();
-        self.scan_state.set_phase(ScanPhase::Collecting);
-        let files = match self.collect_file_paths().await {
-            Ok(files) => files,
-            Err(e) => {
-                tracing::error!("Failed to collect files: {}", e);
-                self.scan_state.error();
-                return;
-            }
-        };
-        let collect_duration = collect_start.elapsed();
-        tracing::debug!("Phase 1 (collecting): {} files collected in {:?}", files.len(), collect_duration);
-
-        let total = files.len() as u64;
-        self.scan_state.set_total(total);
-
-        if total == 0 {
-            // 设置完成状态
-            self.scan_state.set_phase(ScanPhase::Completed);
-            self.scan_state.completed();
-            tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
-            return;
-        }
-
-        // Phase 2: Count changes
-        let count_start = Instant::now();
-        let counts = self.calculate_changes(&files).await;
-        let count_duration = count_start.elapsed();
-        tracing::debug!("Phase 2 (counting): {} to add, {} to update in {:?}",
-            counts.files_to_add, counts.files_to_update, count_duration);
-
-        // Set file counts and prepare for processing
-        self.scan_state.set_file_counts(counts.files_to_add, counts.files_to_update, counts.files_to_delete);
-
-        // Update to processing phase
-        self.scan_state.set_phase(ScanPhase::Processing);
-        self.scan_state.set_total(counts.files_to_add + counts.files_to_update);
-
-        // Phase 3: Process files serially
-        let process_start = Instant::now();
-        let processing_count = counts.files_to_add + counts.files_to_update;
-        if processing_count > 0 {
-            // Process files that need metadata extraction
-            self.process_serial(&files).await;
-            // 检查是否在处理过程中被取消（process_serial 内部会调用 cancelled()）
-            if self.is_cancelled.load(Ordering::SeqCst) {
-                // 删除阶段会检查取消标志，这里仍然执行删除
-                self.scan_state.set_phase(ScanPhase::Deleting);
-                self.delete_missing(&files).await;
-                tracing::info!("Serial scan cancelled");
-                return;
-            }
-        } else {
-            // All files unchanged - just touch them in batch
-            let repo = MediaFileRepository::new(&self.db);
-            let _ = repo.batch_touch(&files).await;
-        }
-        let process_duration = process_start.elapsed();
-        tracing::debug!("Phase 3 (processing): completed in {:?}", process_duration);
-
-        // Phase 4: Clean up missing files
-        let delete_start = Instant::now();
-        self.delete_missing(&files).await;
-        let delete_duration = delete_start.elapsed();
-        tracing::debug!("Phase 4 (deleting): completed in {:?}", delete_duration);
-
-        let processed = self.success_count.load(Ordering::SeqCst) + self.failure_count.load(Ordering::SeqCst);
-        let total_duration = scan_start.elapsed();
-        tracing::info!("Serial scan complete: {} files processed ({} success, {} failed), total time: {:?}",
-            processed, self.success_count.load(Ordering::SeqCst), self.failure_count.load(Ordering::SeqCst), total_duration);
     }
 
     /// Collect file paths only (fast operation)
@@ -458,8 +373,8 @@ impl ScanService {
     /// Parallel metadata extraction using semaphore-controlled concurrency
     /// Reports results via scan_state for ordered progress updates
     async fn parallel_extract_metadata(&self, files: &[PathBuf]) -> Vec<ProcessingResult> {
-        let concurrency = self.get_concurrency();
-        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let worker_count = self.get_worker_count();
+        let semaphore = Arc::new(Semaphore::new(worker_count));
 
         // Clone files to owned Vec for 'static lifetime
         let files_owned: Vec<PathBuf> = files.to_vec();
@@ -674,127 +589,6 @@ impl ScanService {
         }
 
         cancelled
-    }
-
-    /// Calculate changes (serial fallback - uses DB per file)
-    async fn calculate_changes(&self, files: &[PathBuf]) -> ScanProgress {
-        let repo = MediaFileRepository::new(&self.db);
-        let mut to_add = 0;
-        let mut to_update = 0;
-
-        for path in files {
-            match repo.find_by_path(path).await {
-                Ok(Some(_)) => to_update += 1,
-                Ok(None) => to_add += 1,
-                Err(_) => to_add += 1,
-            }
-        }
-
-        ScanProgress {
-            files_to_add: to_add,
-            files_to_update: to_update,
-            files_to_delete: 0,
-            ..Default::default()
-        }
-    }
-
-    /// Process files serially (fallback mode)
-    async fn process_serial(&self, files: &[PathBuf]) {
-        let total = files.len() as u64;
-        let mut results: Vec<ProcessingResult> = Vec::with_capacity(total as usize);
-
-        for (_, file) in files.iter().enumerate() {
-            if self.is_cancelled.load(Ordering::SeqCst) {
-                // 保存已处理的文件后再发送取消状态
-                self.save_partial_results(&results, files).await;
-                self.scan_state.cancelled();
-                return;
-            }
-
-            match self.process_file_to_result(file).await {
-                Ok(result) => {
-                    results.push(result);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to process {}: {}", file.display(), e);
-                    self.failure_count.fetch_add(1, Ordering::SeqCst);
-                }
-            }
-        }
-    }
-
-    /// Process single file and return ProcessingResult
-    async fn process_file_to_result(&self, path: &Path) -> Result<ProcessingResult, Box<dyn std::error::Error>> {
-        let processor = self.processors.find_processor(path).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::Unsupported, "No processor found")
-        })?;
-
-        let file_metadata = crate::processors::file_metadata::extract_file_metadata(path);
-        let format_metadata = processor.process(path).await?;
-
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        let file_type = if processor.media_type() == crate::processors::MediaType::Video {
-            "video"
-        } else {
-            "image"
-        };
-
-        let media_file = Self::build_media_file(
-            path,
-            file_name,
-            file_type,
-            &file_metadata,
-            &format_metadata,
-        );
-
-        Ok(ProcessingResult {
-            path: path.to_path_buf(),
-            success: Some(media_file),
-            error: None,
-        })
-    }
-
-    /// Save partial results when scan is cancelled
-    /// 保存已处理的文件到数据库，用于取消时保留已处理的数据
-    async fn save_partial_results(&self, results: &[ProcessingResult], all_files: &[PathBuf]) {
-        let repo = MediaFileRepository::new(&self.db);
-
-        // 保存已处理成功的文件
-        let success_files: Vec<MediaFile> = results.iter()
-            .filter_map(|r| r.success.clone())
-            .collect();
-
-        if !success_files.is_empty() {
-            match repo.batch_upsert(&success_files).await {
-                Ok(_) => {
-                    tracing::info!("Cancelled scan: saved {} processed files", success_files.len());
-                }
-                Err(e) => {
-                    tracing::error!("Failed to upsert partial results on cancel: {}", e);
-                }
-            }
-        }
-
-        // 更新 skip_list 中文件的 last_scanned（未被处理的文件）
-        use std::collections::HashSet;
-        let processed_paths: HashSet<String> = results.iter()
-            .filter_map(|r| r.success.as_ref().map(|f| f.file_path.clone()))
-            .collect();
-
-        let skip_list: Vec<PathBuf> = all_files.iter()
-            .filter(|p| !processed_paths.contains(&p.to_string_lossy().to_string()))
-            .cloned()
-            .collect();
-
-        if !skip_list.is_empty() {
-            if let Err(e) = repo.batch_touch(&skip_list).await {
-                tracing::error!("Failed to touch skip list on cancel: {}", e);
-            }
-        }
     }
 
     async fn delete_missing(&self, existing_files: &[PathBuf]) {

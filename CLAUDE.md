@@ -55,8 +55,7 @@ Configure backend via environment variables:
 ### Scan Configuration
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LATTE_SCAN_PARALLEL` | `true` | Enable parallel scanning |
-| `LATTE_SCAN_CONCURRENCY` | (auto) | Override parallel concurrency (CPU cores x 2) |
+| `LATTE_SCAN_WORKER_COUNT` | (auto) | Override worker count (CPU cores x 2, default) |
 | `LATTE_SCAN_CRON` | `0 0 2 * * ?` | Scheduled scan cron (2 AM daily) |
 | `LATTE_SCAN_BATCH_SIZE` | `50` | Database batch size for scan operations |
 
@@ -415,16 +414,11 @@ Phase labels in Chinese:
 | Full scan (no changes) | O(n) metadata extraction | O(1) batch_touch |
 | Few new files | Process all n files | Process only new/modified |
 
-#### Serial Mode (Fallback)
-
-Enabled when `LATTE_SCAN_PARALLEL=false`. Processes files one-by-one. Used for debugging or problematic environments.
-
 ### Configuration
 
 | Variable | Default | Description |
 |---------------------|---------|-------------|
-| `LATTE_SCAN_PARALLEL` | `true` | Enable parallel scanning |
-| `LATTE_SCAN_CONCURRENCY` | CPU cores × 2 | Metadata extraction concurrency |
+| `LATTE_SCAN_WORKER_COUNT` | CPU cores × 2 | Metadata extraction worker count |
 
 ## Dependencies
 
@@ -468,7 +462,7 @@ SQLite with sqlx. Migrations in `src/db/migrations/` applied automatically. Key 
 3. **Code Reuse**: Consolidate duplicate code. DRY principle.
 4. **Comments**: Add clear comments for complex key logic.
 5. **Testing**: Ensure unit test coverage for functional additions.
-6. **Cleanup**: Remove obsolete code promptly.
+6. **Cleanup**: REMOVE obsolete code on time. They would only occur confusion and maintenance cost.
 7. **Privacy**: Don't access production databases without explicit authorization.
 
 ## Common Tasks
@@ -510,11 +504,12 @@ SQLite with sqlx. Migrations in `src/db/migrations/` applied automatically. Key 
 
 ## Guidelines
 
-Before taking ANY motivating change, understand the following guidelines first.
+Before taking ANY motivated change, promise you would understand the following guidelines first.
 
 ### Common Development Guideline
 
- - When modifing any existing code that could infect any existing logic or behavior, do not ignore any potential side effect. MAKE SURE  to check all the relevant code, or serious bugs might be introduced.
+ - When modifing any existing code that could infect any existing logic or behavior, do not ignore any potential side effect. MAKE SURE to check all the relevant code, or serious bugs might be introduced.
+ - Before any massive code change, evaluate the impact and the RISKS on the existing codebase.
  - After any massive code change, e.g. feature and refactor, or critical logical change & breaking change, MAKE SURE to check and update the logical design to CLAUDE.md for future reference.
  - If you have multiple approach for a hard or systematic problem, programming an rust example to test if it could work in the first place is a good idea.
 
@@ -533,14 +528,17 @@ Remember, just starting developing the code without reading the documentation ma
  - Debugging must be wide-range, detailed and cautious. Never omit any relevant information and suspicious code when debugging.
  - For those difficult-to-debug issues, giving arbitrary conclusions for the problem is COMPLETELY unacceptable.
    - You should be clear that you are an AI assistant and lack of outer information, might make mistakes and wrong decisions from time to time.
-   - Give final conclusions only when you are totally sure you do build up a completed, trusted evidence chain towards the reason.
+   - Give final conclusions only when you are totally sure you do build up a completed, trusted evidence chain towards the reason. Otherwise always give your conclusion as a GUESS or assumption.
  - Feel free to ask me the user for more information or necessary manual operation if needed.
  - Do not hesitate to add well-detailed debug information, e.g. error messages, stack traces, or any other relevant details when lack of information.
+ - When running the program, COLLECT the console output to file for further analysis.
 
  ### Frontend Design Guideline
 
   - The design principle of the frontend is to keep it elegant, simple to use, and match with the human intuition.
   - By default the UI should not contain too much bloated information, only show detail when user open the detail view. The detail view should be well organized and easy to read, and the entry is easy to find.
+  - Check all the state variable associated with your modification, and make sure they are updated correctly.
+  - Since the frontend might be hard to test automatically, ALWAYS give a use case guide to test your modification. e.g. click the button, input the text, or navigate to the page, and check the thing happened as expected.
 
  ### Git Commit Guideline
 

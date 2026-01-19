@@ -43,10 +43,8 @@ pub struct Config {
     pub thumbnail_quality: f32,
 
     // === Scan Configuration ===
-    /// Enable parallel scanning (default: true)
-    pub scan_parallel: bool,
-    /// Override for parallel scan concurrency (CPU cores * 2 if None)
-    pub scan_concurrency: Option<usize>,
+    /// Override for scan worker count (CPU cores * 2 if None)
+    pub scan_worker_count: Option<usize>,
     /// Cron expression for scheduled scans (default: "0 0 2 * * ?" = 2 AM daily)
     pub scan_cron: String,
     /// Batch size for database operations during scan (default: 50)
@@ -100,9 +98,8 @@ impl Config {
         let thumbnail_large = get_env_u32("LATTE_THUMBNAIL_LARGE", 900)?;
         let thumbnail_quality = get_env_f32("LATTE_THUMBNAIL_QUALITY", 0.8)?;
 
-        let scan_parallel = get_env_bool("LATTE_SCAN_PARALLEL", true)?;
-        let scan_concurrency = get_env_usize("LATTE_SCAN_CONCURRENCY", 0)?;
-        let scan_concurrency = if scan_concurrency == 0 { None } else { Some(scan_concurrency) };
+        let scan_worker_count = get_env_usize("LATTE_SCAN_WORKER_COUNT", 0)?;
+        let scan_worker_count = if scan_worker_count == 0 { None } else { Some(scan_worker_count) };
         let scan_cron = get_env("LATTE_SCAN_CRON", "0 0 2 * * ?")?;
         let scan_batch_size = get_env_usize("LATTE_SCAN_BATCH_SIZE", 50)?;
 
@@ -131,8 +128,7 @@ impl Config {
             thumbnail_medium,
             thumbnail_large,
             thumbnail_quality,
-            scan_parallel,
-            scan_concurrency,
+            scan_worker_count,
             scan_cron,
             scan_batch_size,
             ffmpeg_path,
@@ -235,14 +231,6 @@ fn get_env_f64(key: &str, default: f64) -> Result<f64, ConfigError> {
     })
 }
 
-fn get_env_bool(key: &str, default: bool) -> Result<bool, ConfigError> {
-    let value = get_env(key, "")?;
-    if value.is_empty() {
-        return Ok(default);
-    }
-    value.parse().map_or(Ok(default), Ok)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,8 +252,7 @@ mod tests {
             thumbnail_medium: 450,
             thumbnail_large: 900,
             thumbnail_quality: 0.8,
-            scan_parallel: true,
-            scan_concurrency: None,
+            scan_worker_count: None,
             scan_cron: "0 0 2 * * ?".to_string(),
             scan_batch_size: 50,
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
@@ -313,8 +300,7 @@ impl Default for Config {
             thumbnail_medium: 450,
             thumbnail_large: 900,
             thumbnail_quality: 0.8,
-            scan_parallel: true,
-            scan_concurrency: None,
+            scan_worker_count: None,
             scan_cron: "0 0 2 * * ?".to_string(),
             scan_batch_size: 50,
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
