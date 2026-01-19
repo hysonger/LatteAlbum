@@ -13,20 +13,29 @@ pub struct CacheService {
 }
 
 impl CacheService {
-    /// Create a new cache service
-    pub async fn new(cache_dir: &PathBuf) -> Result<Self, std::io::Error> {
+    /// Create a new cache service with configurable parameters
+    pub async fn new(
+        cache_dir: &PathBuf,
+        max_capacity: usize,
+        ttl_seconds: u64,
+    ) -> Result<Self, std::io::Error> {
         // Ensure cache directory exists
         fs::create_dir_all(cache_dir).await?;
 
         let memory_cache = Arc::new(Cache::builder()
-            .max_capacity(1000)
-            .time_to_live(std::time::Duration::from_secs(3600))
+            .max_capacity(max_capacity as u64)
+            .time_to_live(std::time::Duration::from_secs(ttl_seconds))
             .build());
 
         Ok(Self {
             memory_cache,
             disk_cache_dir: cache_dir.clone(),
         })
+    }
+
+    /// Create a new cache service with default settings (for backward compatibility)
+    pub async fn new_with_defaults(cache_dir: &PathBuf) -> Result<Self, std::io::Error> {
+        Self::new(cache_dir, 1000, 3600).await
     }
 
     /// Get thumbnail from cache

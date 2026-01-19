@@ -16,29 +16,69 @@ pub enum ConfigError {
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    // === Server Configuration ===
+    /// Server bind address (default: "0.0.0.0")
     pub host: String,
+    /// Server port (default: 8080)
     pub port: u16,
+
+    // === Path Configuration ===
+    /// Base directory for photo/video files
     pub base_path: PathBuf,
+    /// SQLite database file path
     pub db_path: PathBuf,
+    /// Thumbnail cache directory
     pub cache_dir: PathBuf,
+    /// Frontend static files directory
     pub static_dir: PathBuf,
 
-    // Thumbnail configuration
+    // === Thumbnail Configuration ===
+    /// Small thumbnail width in pixels (default: 300)
     pub thumbnail_small: u32,
+    /// Medium thumbnail width in pixels (default: 450)
     pub thumbnail_medium: u32,
+    /// Large thumbnail height in pixels (default: 900) - fixed height, maintains aspect ratio
     pub thumbnail_large: u32,
+    /// JPEG encoding quality 0.0-1.0 (default: 0.8 = 80%)
     pub thumbnail_quality: f32,
 
-    // Scan configuration
+    // === Scan Configuration ===
+    /// Enable parallel scanning (default: true)
     pub scan_parallel: bool,
+    /// Override for parallel scan concurrency (CPU cores * 2 if None)
     pub scan_concurrency: Option<usize>,
+    /// Cron expression for scheduled scans (default: "0 0 2 * * ?" = 2 AM daily)
     pub scan_cron: String,
+    /// Batch size for database operations during scan (default: 50)
     pub scan_batch_size: usize,
 
-    // Video configuration
+    // === Video Processing Configuration ===
+    /// Path to FFmpeg executable
     pub ffmpeg_path: PathBuf,
+    /// Video thumbnail capture offset in seconds (default: 1.0)
     pub video_thumbnail_offset: f64,
+    /// Video thumbnail capture duration in seconds (default: 0.1)
     pub video_thumbnail_duration: f64,
+
+    // === Cache Configuration ===
+    /// Maximum number of items in memory cache (default: 1000)
+    pub cache_max_capacity: usize,
+    /// Cache time-to-live in seconds (default: 3600 = 1 hour)
+    pub cache_ttl_seconds: u64,
+
+    // === Batch Processing Configuration ===
+    /// Batch size for checking existing files in database (default: 500)
+    pub db_batch_check_size: usize,
+    /// Batch size for writing results to database (default: 100)
+    pub db_batch_write_size: usize,
+
+    // === WebSocket Configuration ===
+    /// Progress broadcast interval - send every N files (default: 10)
+    pub ws_progress_broadcast_interval: u64,
+
+    // === API Configuration ===
+    /// Default page size for list API responses (default: 50)
+    pub api_default_page_size: usize,
 }
 
 impl Config {
@@ -70,6 +110,16 @@ impl Config {
         let video_thumbnail_offset = get_env_f64("LATTE_VIDEO_THUMBNAIL_OFFSET", 1.0)?;
         let video_thumbnail_duration = get_env_f64("LATTE_VIDEO_THUMBNAIL_DURATION", 0.1)?;
 
+        let cache_max_capacity = get_env_usize("LATTE_CACHE_MAX_CAPACITY", 1000)?;
+        let cache_ttl_seconds = get_env_u64("LATTE_CACHE_TTL_SECONDS", 3600)?;
+
+        let db_batch_check_size = get_env_usize("LATTE_DB_BATCH_CHECK_SIZE", 500)?;
+        let db_batch_write_size = get_env_usize("LATTE_DB_BATCH_WRITE_SIZE", 100)?;
+
+        let ws_progress_broadcast_interval = get_env_u64("LATTE_WS_PROGRESS_INTERVAL", 10)?;
+
+        let api_default_page_size = get_env_usize("LATTE_API_DEFAULT_PAGE_SIZE", 50)?;
+
         Ok(Self {
             host,
             port,
@@ -88,6 +138,12 @@ impl Config {
             ffmpeg_path,
             video_thumbnail_offset,
             video_thumbnail_duration,
+            cache_max_capacity,
+            cache_ttl_seconds,
+            db_batch_check_size,
+            db_batch_write_size,
+            ws_progress_broadcast_interval,
+            api_default_page_size,
         })
     }
 
@@ -140,6 +196,16 @@ fn get_env_u32(key: &str, default: u32) -> Result<u32, ConfigError> {
 }
 
 fn get_env_usize(key: &str, default: usize) -> Result<usize, ConfigError> {
+    let value = get_env(key, "")?;
+    if value.is_empty() {
+        return Ok(default);
+    }
+    value.parse().map_or(Ok(default), |v| {
+        if v == 0 { Ok(default) } else { Ok(v) }
+    })
+}
+
+fn get_env_u64(key: &str, default: u64) -> Result<u64, ConfigError> {
     let value = get_env(key, "")?;
     if value.is_empty() {
         return Ok(default);
@@ -205,6 +271,12 @@ mod tests {
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
             video_thumbnail_offset: 1.0,
             video_thumbnail_duration: 0.1,
+            cache_max_capacity: 1000,
+            cache_ttl_seconds: 3600,
+            db_batch_check_size: 500,
+            db_batch_write_size: 100,
+            ws_progress_broadcast_interval: 10,
+            api_default_page_size: 50,
         };
 
         assert_eq!(config.host, "0.0.0.0");
@@ -248,6 +320,12 @@ impl Default for Config {
             ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
             video_thumbnail_offset: 1.0,
             video_thumbnail_duration: 0.1,
+            cache_max_capacity: 1000,
+            cache_ttl_seconds: 3600,
+            db_batch_check_size: 500,
+            db_batch_write_size: 100,
+            ws_progress_broadcast_interval: 10,
+            api_default_page_size: 50,
         }
     }
 }

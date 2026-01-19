@@ -383,14 +383,14 @@ impl ScanService {
     /// Returns (to_add, to_update, skip_list) - skip_list contains files with unchanged modify_time
     /// Uses batch_find_by_paths_batch for efficient bulk SELECT queries
     async fn batch_check_exists(&self, files: &[PathBuf]) -> (u64, u64, Vec<PathBuf>) {
-        const BATCH_SIZE: usize = 500;
+        let batch_size = self.config.db_batch_check_size;
 
         let mut to_add = 0u64;
         let mut to_update = 0u64;
         let mut skip_list: Vec<PathBuf> = Vec::new();
         let repo = MediaFileRepository::new(&self.db);
 
-        for chunk in files.chunks(BATCH_SIZE) {
+        for chunk in files.chunks(batch_size) {
             if self.is_cancelled.load(Ordering::SeqCst) {
                 break;
             }
@@ -619,7 +619,7 @@ impl ScanService {
         skip_list: &[PathBuf],
         _total: u64
     ) -> bool {
-        const BATCH_SIZE: usize = 100;
+        let batch_size = self.config.db_batch_write_size;
         let repo = MediaFileRepository::new(&self.db);
 
         let mut success_count = 0u64;
@@ -627,7 +627,7 @@ impl ScanService {
         let mut cancelled = false;
 
         // Write processed files
-        for chunk in results.chunks(BATCH_SIZE) {
+        for chunk in results.chunks(batch_size) {
             // 检查是否需要取消，但先完成当前批次的处理
             let should_cancel = self.is_cancelled.load(Ordering::SeqCst);
 

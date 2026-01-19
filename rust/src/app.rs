@@ -50,12 +50,20 @@ impl App {
 
         // Create shared state
         let mut broadcaster = Arc::new(ScanProgressBroadcaster::new());
-        let scan_state = Arc::new(ScanStateManager::new(broadcaster.sender()));
+        let scan_state = Arc::new(ScanStateManager::new_with_interval(
+            broadcaster.sender(),
+            config.ws_progress_broadcast_interval,
+        ));
 
         // Set scan_state reference in broadcaster (break circular dependency)
         Arc::make_mut(&mut broadcaster).set_scan_state(scan_state.clone());
 
-        let cache_service = Arc::new(CacheService::new(&config.cache_dir).await?);
+        // Create cache service with configurable parameters
+        let cache_service = Arc::new(CacheService::new(
+            &config.cache_dir,
+            config.cache_max_capacity,
+            config.cache_ttl_seconds,
+        ).await?);
 
         // Create transcoding pool for CPU-intensive image processing (MUST be created before processors)
         let transcoding_pool = Arc::new(TranscodingPool::new(4));
@@ -79,6 +87,7 @@ impl App {
             db.clone(),
             cache_service.clone(),
             processors.clone(),
+            &config,
         ));
 
         let state = AppState {

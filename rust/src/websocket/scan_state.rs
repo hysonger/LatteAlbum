@@ -1,5 +1,6 @@
 use tokio::sync::{broadcast, mpsc};
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::task::AbortHandle;
 use crate::websocket::broadcast::ScanProgressMessage;
 
@@ -58,19 +59,30 @@ pub struct ScanStateManager {
     state: Arc<RwLock<ScanState>>,
     progress_sender: mpsc::Sender<ProgressUpdate>,
     _worker_task: AbortHandle,
+    broadcast_interval: Arc<AtomicU64>,
 }
 
 impl ScanStateManager {
-    /// 创建新的状态管理器
+    /// 创建新的状态管理器（使用默认广播间隔10）
     pub fn new(tx: broadcast::Sender<ScanProgressMessage>) -> Self {
+        Self::new_with_interval(tx, 10)
+    }
+
+    /// 创建新的状态管理器（带可配置的广播间隔）
+    pub fn new_with_interval(tx: broadcast::Sender<ScanProgressMessage>, broadcast_interval: u64) -> Self {
         let state = Arc::new(RwLock::new(ScanState::default()));
         let (progress_tx, mut progress_rx) = mpsc::channel(1000);
         let worker_state = state.clone();
         let tx_clone = tx.clone();
+        let interval_arc = Arc::new(AtomicU64::new(broadcast_interval));
+
+        // Clone for the worker task
+        let worker_interval = interval_arc.clone();
 
         // Worker 任务：接收更新消息，更新状态，广播进度
         let worker_task = tokio::spawn(async move {
             let mut last_progress_reported: u64 = 0;
+            let interval = worker_interval.load(Ordering::Relaxed);
 
             while let Some(update) = progress_rx.recv().await {
                 {
@@ -127,7 +139,7 @@ impl ScanStateManager {
                         "0.00".to_string()
                     };
 
-                    // 每 10 个文件发送一次进度消息，或在阶段变更/完成时发送
+                    // 每 N 个文件发送一次进度消息，或在阶段变更/完成时发送
                     let should_send = matches!(
                         update,
                         ProgressUpdate::SetPhase(_)
@@ -135,7 +147,7 @@ impl ScanStateManager {
                             | ProgressUpdate::Completed
                             | ProgressUpdate::Error
                             | ProgressUpdate::Cancelled
-                    ) || processed.saturating_sub(last_progress_reported) >= 10;
+                    ) || processed.saturating_sub(last_progress_reported) >= interval;
 
                     if should_send {
                         let phase_str = format!("{:?}", current_state.phase);
@@ -163,7 +175,13 @@ impl ScanStateManager {
             state,
             progress_sender: progress_tx,
             _worker_task: worker_task.abort_handle(),
+            broadcast_interval: interval_arc,
         }
+    }
+
+    /// 设置广播间隔
+    pub fn set_broadcast_interval(&self, interval: u64) {
+        self.broadcast_interval.store(interval, Ordering::Relaxed);
     }
 
     /// 业务逻辑调用的接口

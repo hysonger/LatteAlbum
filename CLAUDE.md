@@ -30,20 +30,64 @@ Latte Album is a personal photo album application for NAS deployment, rewritten 
 
 Configure backend via environment variables:
 
+### Server Configuration
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LATTE_HOST` | `0.0.0.0` | Server bind address |
 | `LATTE_PORT` | `8080` | Server port |
+
+### Path Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `LATTE_BASE_PATH` | `./photos` | Photo directory |
 | `LATTE_DB_PATH` | `./data/album.db` | SQLite database path |
 | `LATTE_CACHE_DIR` | `./cache` | Thumbnail cache directory |
 | `LATTE_STATIC_DIR` | `./static/dist` | Frontend static files |
+
+### Thumbnail Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `LATTE_THUMBNAIL_SMALL` | `300` | Small thumbnail width (px) |
 | `LATTE_THUMBNAIL_MEDIUM` | `450` | Medium thumbnail width (px) |
 | `LATTE_THUMBNAIL_LARGE` | `900` | Large thumbnail height (px) - fixed height, maintains aspect ratio |
-| `LATTE_THUMBNAIL_QUALITY` | `0.8` | JPEG quality (80%) |
+| `LATTE_THUMBNAIL_QUALITY` | `0.8` | JPEG quality (0.0-1.0, default 80%) |
+
+### Scan Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_SCAN_PARALLEL` | `true` | Enable parallel scanning |
+| `LATTE_SCAN_CONCURRENCY` | (auto) | Override parallel concurrency (CPU cores x 2) |
 | `LATTE_SCAN_CRON` | `0 0 2 * * ?` | Scheduled scan cron (2 AM daily) |
+| `LATTE_SCAN_BATCH_SIZE` | `50` | Database batch size for scan operations |
+
+### Video Processing Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `LATTE_VIDEO_FFMPEG_PATH` | `/usr/bin/ffmpeg` | FFmpeg executable path |
+| `LATTE_VIDEO_THUMBNAIL_OFFSET` | `1.0` | Video thumbnail capture offset (seconds) |
+| `LATTE_VIDEO_THUMBNAIL_DURATION` | `0.1` | Video thumbnail capture duration (seconds) |
+
+### Cache Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_CACHE_MAX_CAPACITY` | `1000` | Memory cache max items |
+| `LATTE_CACHE_TTL_SECONDS` | `3600` | Cache TTL (seconds, default 1 hour) |
+
+### Database Batch Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_DB_BATCH_CHECK_SIZE` | `500` | Batch size for checking existing files |
+| `LATTE_DB_BATCH_WRITE_SIZE` | `100` | Batch size for writing results |
+
+### WebSocket Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_WS_PROGRESS_INTERVAL` | `10` | Progress broadcast interval (files between broadcasts) |
+
+### API Configuration
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LATTE_API_DEFAULT_PAGE_SIZE` | `50` | Default page size for list API |
 
 ## Architecture
 

@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::db::{DatabasePool, MediaFileRepository};
 use crate::processors::ProcessorRegistry;
 use crate::services::CacheService;
@@ -11,6 +12,7 @@ pub struct FileService {
     db: DatabasePool,
     cache: Arc<CacheService>,
     processors: Arc<ProcessorRegistry>,
+    thumbnail_quality: f32,
 }
 
 impl FileService {
@@ -18,11 +20,13 @@ impl FileService {
         db: DatabasePool,
         cache: Arc<CacheService>,
         processors: Arc<ProcessorRegistry>,
+        config: &Config,
     ) -> Self {
         Self {
             db,
             cache,
             processors,
+            thumbnail_quality: config.thumbnail_quality,
         }
     }
 }
@@ -80,7 +84,7 @@ impl FileService {
 
                     // Generate thumbnail using processor (which uses transcoding_pool internally)
                     if let Some(processor) = self.processors.find_processor(path) {
-                        match processor.generate_thumbnail(path, target_size, 0.8, fit_to_height).await {
+                        match processor.generate_thumbnail(path, target_size, self.thumbnail_quality, fit_to_height).await {
                             Ok(Some(thumbnail_data)) => {
                                 // Cache the generated thumbnail (all sizes including full)
                                 // Clone for caching since we need to return the original data
