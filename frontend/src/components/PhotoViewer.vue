@@ -4,18 +4,27 @@
       <button class="nav-btn prev" @click="prev" :disabled="!hasPrev">‹</button>
       
       <div class="media-container" :style="containerStyle">
-        <img
-          v-if="isImage"
-          :src="currentImageUrl ?? undefined"
-          :alt="currentFile?.fileName"
-          @load="handleImageLoad"
-          @error="handleError"
-        />
+        <!-- 图片 -->
+        <template v-if="isImage">
+          <!-- 图片加载占位符 -->
+          <div v-if="showImagePlaceholder" class="image-placeholder">
+            <div class="spinner"></div>
+            <span v-if="currentFile" class="placeholder-filename">{{ currentFile.fileName }}</span>
+          </div>
+          <img
+            v-show="isImageLoaded"
+            :src="currentImageUrl ?? undefined"
+            :alt="currentFile?.fileName"
+            @load="handleImageLoad"
+            @error="handleError"
+          />
+        </template>
+        <!-- 视频 -->
         <div v-else-if="isVideo" class="video-placeholder">
           <div class="video-wrapper">
-            <video 
+            <video
               ref="videoRef"
-              :src="currentVideoUrl ?? undefined" 
+              :src="currentVideoUrl ?? undefined"
               controls
               :poster="thumbnailUrl ?? undefined"
               @loadedmetadata="onVideoMetadataLoaded"
@@ -38,6 +47,7 @@
             </div>
           </div>
         </div>
+        <!-- 加载中 -->
         <div v-else class="loading">加载中...</div>
       </div>
       
@@ -150,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { fileApi } from '@/services/api'
 import { useScreenSize } from '@/composables/useScreenSize'
 import type { MediaFile } from '@/types'
@@ -177,6 +187,10 @@ const showDetailInfo = ref(false)
 const isLoading = ref(false)
 const isConverting = ref<boolean>(false)
 const videoError = ref<string | null>(null)
+const isImageLoaded = ref(false)
+
+// 用于触发窗口尺寸变化时的重新计算
+const windowResizeKey = ref(0)
 
 // 用于防止竞态条件：跟踪当前加载的世代
 let loadGeneration = 0
@@ -188,8 +202,14 @@ const isVideo = computed(() => currentFile.value?.fileType === 'video')
 const hasPrev = computed(() => currentIndex.value > 0)
 const hasNext = computed(() => currentIndex.value < props.neighbors.length - 1)
 
+// 图片占位符显示条件：加载中且图片尚未加载完成
+const showImagePlaceholder = computed(() => isImage.value && isLoading.value && !isImageLoaded.value)
+
 // 图片容器样式：根据原始图片尺寸计算固定的宽高比，避免从 large 切换到 full 时视觉跳变
 const containerStyle = computed(() => {
+  // 依赖 windowResizeKey，当窗口大小变化时触发重新计算
+  void windowResizeKey.value
+
   if (!currentFile.value?.width || !currentFile.value?.height) {
     return {}
   }
@@ -325,6 +345,9 @@ const downloadOriginal = async () => {
 const loadMedia = async () => {
   if (!currentFile.value) return
 
+  // 重置图片加载状态
+  isImageLoaded.value = false
+
   // 增加世代计数，用于防止竞态条件
   const currentGeneration = ++loadGeneration
 
@@ -406,6 +429,7 @@ const loadMedia = async () => {
 }
 
 const handleImageLoad = () => {
+  isImageLoaded.value = true
 }
 
 const handleError = () => {
@@ -517,8 +541,23 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 }
 
+// 窗口大小变化时触发重新计算
+const handleResize = () => {
+  windowResizeKey.value++
+}
+
 // 初始化
 loadMedia()
+
+// 添加窗口大小变化监听
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+// 清理窗口大小变化监听
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+})
 
 // 添加键盘事件监听
 document.addEventListener('keydown', handleKeydown)
@@ -595,6 +634,41 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 图片加载占位符 */
+.image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.placeholder-filename {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 图片容器固定尺寸，避免从 large 切换到 full 时视觉跳变 */
