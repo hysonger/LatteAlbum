@@ -204,3 +204,117 @@ impl Default for ScanProgressBroadcaster {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_scan_progress_message_default() {
+        let msg = ScanProgressMessage::default();
+        assert!(!msg.scanning);
+        assert!(msg.phase.is_none());
+        assert_eq!(msg.total_files, 0);
+        assert_eq!(msg.success_count, 0);
+        assert_eq!(msg.failure_count, 0);
+        assert_eq!(msg.progress_percentage, "0.00");
+        assert_eq!(msg.status, "idle");
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_message_serde() {
+        let msg = ScanProgressMessage {
+            scanning: true,
+            phase: Some("processing".to_string()),
+            total_files: 100,
+            success_count: 50,
+            failure_count: 2,
+            progress_percentage: "52.00".to_string(),
+            status: "progress".to_string(),
+            files_to_add: 30,
+            files_to_update: 20,
+            files_to_delete: 5,
+            start_time: Some("2024-06-15T10:00:00Z".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"scanning\":true"));
+        assert!(json.contains("\"phase\":\"processing\""));
+        assert!(json.contains("\"status\":\"progress\""));
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_new() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        assert!(broadcaster.subscribe().try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_subscribe() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        let _rx = broadcaster.subscribe();
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_send_started() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.send_started(10, 5, 2, 100, "processing").await;
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_send_cancelled() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.send_cancelled().await;
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_send_error() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.send_error().await;
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_get_current_progress() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        let progress = broadcaster.get_current_progress().await;
+        assert!(!progress.scanning);
+        assert_eq!(progress.status, "idle");
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_update_phase() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.update_phase("collecting").await;
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_update_total() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.update_total(500).await;
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_send_progress() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.send_progress(50, 2, 100);
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_get_current_progress_sync() {
+        let broadcaster = ScanProgressBroadcaster::new();
+        let progress = broadcaster.get_current_progress_sync();
+        assert!(!progress.scanning);
+    }
+
+    #[tokio::test]
+    async fn test_scan_progress_broadcaster_with_scan_state() {
+        let (tx, _) = broadcast::channel(100);
+        let scan_state = Arc::new(ScanStateManager::new_with_interval(tx.clone(), 10));
+
+        let mut broadcaster = ScanProgressBroadcaster::new();
+        broadcaster.set_scan_state(scan_state);
+
+        let progress = broadcaster.get_current_progress().await;
+        assert!(!progress.scanning);
+    }
+}

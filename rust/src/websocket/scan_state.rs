@@ -266,3 +266,261 @@ impl ScanStateManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan_phase_variants() {
+        assert_eq!(ScanPhase::Idle, ScanPhase::Idle);
+        assert_eq!(ScanPhase::Collecting, ScanPhase::Collecting);
+        assert_eq!(ScanPhase::Counting, ScanPhase::Counting);
+        assert_eq!(ScanPhase::Processing, ScanPhase::Processing);
+        assert_eq!(ScanPhase::Writing, ScanPhase::Writing);
+        assert_eq!(ScanPhase::Deleting, ScanPhase::Deleting);
+        assert_eq!(ScanPhase::Completed, ScanPhase::Completed);
+        assert_eq!(ScanPhase::Error, ScanPhase::Error);
+        assert_eq!(ScanPhase::Cancelled, ScanPhase::Cancelled);
+    }
+
+    #[test]
+    fn test_scan_phase_default() {
+        assert_eq!(ScanPhase::default(), ScanPhase::Idle);
+    }
+
+    #[test]
+    fn test_scan_phase_serde() {
+        let phase = ScanPhase::Processing;
+        let json = serde_json::to_string(&phase).unwrap();
+        assert!(json.contains("processing"));
+    }
+
+    #[test]
+    fn test_scan_state_default() {
+        let state = ScanState::default();
+        assert_eq!(state.phase, ScanPhase::Idle);
+        assert!(!state.scanning);
+        assert_eq!(state.total_files, 0);
+        assert_eq!(state.success_count, 0);
+        assert_eq!(state.failure_count, 0);
+    }
+
+    #[test]
+    fn test_scan_state_with_values() {
+        let mut state = ScanState::default();
+        state.phase = ScanPhase::Processing;
+        state.scanning = true;
+        state.total_files = 100;
+        state.success_count = 50;
+
+        assert_eq!(state.phase, ScanPhase::Processing);
+        assert!(state.scanning);
+        assert_eq!(state.total_files, 100);
+        assert_eq!(state.success_count, 50);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_new() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new(tx);
+
+        let state = manager.get_state();
+        assert_eq!(state.phase, ScanPhase::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_new_with_interval() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 20);
+
+        let state = manager.get_state();
+        assert_eq!(state.phase, ScanPhase::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_set_phase() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.set_phase(ScanPhase::Collecting);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.phase, ScanPhase::Collecting);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_set_total() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.set_total(500);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.total_files, 500);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_increment_success() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.increment_success();
+        manager.increment_success();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.success_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_increment_failure() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.increment_failure();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.failure_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_set_file_counts() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.set_file_counts(10, 5, 3);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.files_to_add, 10);
+        assert_eq!(state.files_to_update, 5);
+        assert_eq!(state.files_to_delete, 3);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_reset_counters() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.increment_success();
+        manager.increment_failure();
+        manager.reset_counters();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.success_count, 0);
+        assert_eq!(state.failure_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_started() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.started();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert!(state.scanning);
+        assert!(state.start_time.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_completed() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.completed();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert!(!state.scanning);
+        assert_eq!(state.phase, ScanPhase::Completed);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_error() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.error();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert!(!state.scanning);
+        assert_eq!(state.phase, ScanPhase::Error);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_cancelled() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.cancelled();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert!(!state.scanning);
+        assert_eq!(state.phase, ScanPhase::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_get_state() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.set_phase(ScanPhase::Processing);
+        manager.set_total(100);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state = manager.get_state();
+        assert_eq!(state.phase, ScanPhase::Processing);
+        assert_eq!(state.total_files, 100);
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_to_progress_message() {
+        let (tx, _) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        manager.set_phase(ScanPhase::Processing);
+        manager.set_total(100);
+        manager.increment_success();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let msg = manager.to_progress_message();
+        assert_eq!(msg.phase, Some("Processing".to_string()));
+        assert_eq!(msg.total_files, 100);
+        assert_eq!(msg.success_count, 1);
+        assert_eq!(msg.status, "progress");
+    }
+
+    #[test]
+    fn test_status_from_phase() {
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Idle), "idle");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Collecting), "progress");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Counting), "progress");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Processing), "progress");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Writing), "progress");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Deleting), "progress");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Completed), "completed");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Error), "error");
+        assert_eq!(ScanStateManager::status_from_phase(&ScanPhase::Cancelled), "cancelled");
+    }
+
+    #[tokio::test]
+    async fn test_scan_state_manager_clone() {
+        let (tx, _) = broadcast::channel(100);
+        let manager1 = ScanStateManager::new_with_interval(tx, 10);
+
+        manager1.set_phase(ScanPhase::Collecting);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let state1 = manager1.get_state();
+        assert_eq!(state1.phase, ScanPhase::Collecting);
+    }
+}

@@ -234,41 +234,36 @@ fn get_env_f64(key: &str, default: f64) -> Result<f64, ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    fn clear_env_vars() {
+        env::remove_var("LATTE_HOST");
+        env::remove_var("LATTE_PORT");
+        env::remove_var("LATTE_BASE_PATH");
+        env::remove_var("LATTE_DB_PATH");
+        env::remove_var("LATTE_CACHE_DIR");
+        env::remove_var("LATTE_STATIC_DIR");
+        env::remove_var("LATTE_THUMBNAIL_SMALL");
+        env::remove_var("LATTE_THUMBNAIL_MEDIUM");
+        env::remove_var("LATTE_THUMBNAIL_LARGE");
+        env::remove_var("LATTE_THUMBNAIL_QUALITY");
+        env::remove_var("LATTE_SCAN_CRON");
+        env::remove_var("LATTE_VIDEO_FFMPEG_PATH");
+        env::remove_var("LATTE_CACHE_MAX_CAPACITY");
+        env::remove_var("LATTE_CACHE_TTL_SECONDS");
+        env::remove_var("LATTE_WS_PROGRESS_INTERVAL");
+        env::remove_var("LATTE_API_DEFAULT_PAGE_SIZE");
+    }
 
     #[test]
     fn test_default_values() {
-        // Clear env vars
-        std::env::remove_var("LATTE_HOST");
-        std::env::remove_var("LATTE_PORT");
+        clear_env_vars();
 
-        let config = Config {
-            host: "0.0.0.0".to_string(),
-            port: 8080,
-            base_path: PathBuf::from("./photos"),
-            db_path: PathBuf::from("./data/album.db"),
-            cache_dir: PathBuf::from("./cache"),
-            static_dir: PathBuf::from("./static/dist"),
-            thumbnail_small: 300,
-            thumbnail_medium: 450,
-            thumbnail_large: 900,
-            thumbnail_quality: 0.8,
-            scan_worker_count: None,
-            scan_cron: "0 0 2 * * ?".to_string(),
-            scan_batch_size: 50,
-            ffmpeg_path: PathBuf::from("/usr/bin/ffmpeg"),
-            video_thumbnail_offset: 1.0,
-            video_thumbnail_duration: 0.1,
-            cache_max_capacity: 1000,
-            cache_ttl_seconds: 3600,
-            db_batch_check_size: 500,
-            db_batch_write_size: 100,
-            ws_progress_broadcast_interval: 10,
-            api_default_page_size: 50,
-        };
-
-        assert_eq!(config.host, "0.0.0.0");
-        assert_eq!(config.port, 8080);
-        assert_eq!(config.thumbnail_small, 300);
+        assert_eq!(Config::default().host, "0.0.0.0");
+        assert_eq!(Config::default().port, 8080);
+        assert_eq!(Config::default().thumbnail_small, 300);
+        assert_eq!(Config::default().thumbnail_medium, 450);
+        assert_eq!(Config::default().thumbnail_large, 900);
     }
 
     #[test]
@@ -283,7 +278,45 @@ mod tests {
         assert_eq!(config.get_thumbnail_size("small"), 300);
         assert_eq!(config.get_thumbnail_size("medium"), 450);
         assert_eq!(config.get_thumbnail_size("large"), 900);
-        assert_eq!(config.get_thumbnail_size("unknown"), 450); // default
+        assert_eq!(config.get_thumbnail_size("full"), 0);
+        assert_eq!(config.get_thumbnail_size("unknown"), 450);
+    }
+
+    #[test]
+    fn test_config_error_display() {
+        let error = ConfigError::MissingEnvVar("TEST_VAR".to_string());
+        assert_eq!(format!("{}", error), "Missing environment variable: TEST_VAR");
+
+        let error = ConfigError::InvalidValue("TEST_VAR".to_string(), "invalid".to_string());
+        assert_eq!(format!("{}", error), "Invalid value for TEST_VAR: invalid");
+    }
+
+    #[test]
+    fn test_config_full_default() {
+        let config = Config::default();
+
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.base_path, PathBuf::from("./photos"));
+        assert_eq!(config.db_path, PathBuf::from("./data/album.db"));
+        assert_eq!(config.cache_dir, PathBuf::from("./cache"));
+        assert_eq!(config.static_dir, PathBuf::from("./static/dist"));
+        assert_eq!(config.thumbnail_small, 300);
+        assert_eq!(config.thumbnail_medium, 450);
+        assert_eq!(config.thumbnail_large, 900);
+        assert_eq!(config.thumbnail_quality, 0.8);
+        assert_eq!(config.scan_worker_count, None);
+        assert_eq!(config.scan_cron, "0 0 2 * * ?");
+        assert_eq!(config.scan_batch_size, 50);
+        assert_eq!(config.ffmpeg_path, PathBuf::from("/usr/bin/ffmpeg"));
+        assert_eq!(config.video_thumbnail_offset, 1.0);
+        assert_eq!(config.video_thumbnail_duration, 0.1);
+        assert_eq!(config.cache_max_capacity, 1000);
+        assert_eq!(config.cache_ttl_seconds, 3600);
+        assert_eq!(config.db_batch_check_size, 500);
+        assert_eq!(config.db_batch_write_size, 100);
+        assert_eq!(config.ws_progress_broadcast_interval, 10);
+        assert_eq!(config.api_default_page_size, 50);
     }
 }
 

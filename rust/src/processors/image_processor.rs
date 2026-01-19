@@ -357,10 +357,141 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
 /// Clean EXIF string value - remove leading/trailing quotes added by the library
 pub(crate) fn clean_exif_string(s: &str) -> String {
     let s = s.trim();
-    // Remove surrounding quotes if present (both " and ')
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        s[1..s.len()-1].to_string()
-    } else {
-        s.to_string()
+    if s.len() >= 2 {
+        if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+            return s[1..s.len()-1].to_string();
+        }
+    }
+    s.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_exif_tag_from_raw() {
+        assert_eq!(ExifTag::from_raw("Exif", 36867), Some(ExifTag::DateTimeOriginal));
+        assert_eq!(ExifTag::from_raw("Exif", 36868), Some(ExifTag::DateTimeDigitized));
+        assert_eq!(ExifTag::from_raw("Tiff", 306), Some(ExifTag::DateTime));
+        assert_eq!(ExifTag::from_raw("Tiff", 271), Some(ExifTag::Make));
+        assert_eq!(ExifTag::from_raw("Tiff", 272), Some(ExifTag::Model));
+        assert_eq!(ExifTag::from_raw("Exif", 33434), Some(ExifTag::ExposureTime));
+        assert_eq!(ExifTag::from_raw("Exif", 33437), Some(ExifTag::FNumber));
+        assert_eq!(ExifTag::from_raw("Exif", 34855), Some(ExifTag::ISOSpeedRatings));
+        assert_eq!(ExifTag::from_raw("Exif", 37386), Some(ExifTag::FocalLength));
+        assert_eq!(ExifTag::from_raw("Exif", 34973), Some(ExifTag::LensModel));
+    }
+
+    #[test]
+    fn test_exif_tag_from_raw_invalid() {
+        assert_eq!(ExifTag::from_raw("Exif", 65535), None);
+        assert_eq!(ExifTag::from_raw("Unknown", 306), None);
+        assert_eq!(ExifTag::from_raw("Tiff", 0), None);
+    }
+
+    #[test]
+    fn test_exif_tag_description() {
+        assert_eq!(ExifTag::DateTimeOriginal.description(), "拍摄时间");
+        assert_eq!(ExifTag::DateTimeDigitized.description(), "数字化时间");
+        assert_eq!(ExifTag::DateTime.description(), "文件修改时间");
+        assert_eq!(ExifTag::Make.description(), "相机厂商");
+        assert_eq!(ExifTag::Model.description(), "相机型号");
+        assert_eq!(ExifTag::ExposureTime.description(), "快门速度");
+        assert_eq!(ExifTag::FNumber.description(), "光圈值");
+        assert_eq!(ExifTag::ISOSpeedRatings.description(), "ISO感光度");
+        assert_eq!(ExifTag::FocalLength.description(), "焦距");
+    }
+
+    #[test]
+    fn test_exif_tag_all_variants() {
+        let tags = [
+            ExifTag::DateTimeOriginal,
+            ExifTag::DateTimeDigitized,
+            ExifTag::DateTime,
+            ExifTag::OffsetTimeOriginal,
+            ExifTag::OffsetTime,
+            ExifTag::Make,
+            ExifTag::Model,
+            ExifTag::LensModel,
+            ExifTag::ExposureTime,
+            ExifTag::FNumber,
+            ExifTag::ISOSpeedRatings,
+            ExifTag::FocalLength,
+        ];
+
+        for tag in &tags {
+            let desc = tag.description();
+            assert!(!desc.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_standard_image_processor_new() {
+        let processor = StandardImageProcessor::new();
+        assert!(processor.supports(Path::new("test.jpg")));
+        assert!(processor.supports(Path::new("test.png")));
+        assert!(!processor.supports(Path::new("test.mp4")));
+    }
+
+    #[test]
+    fn test_standard_image_processor_priority() {
+        let processor = StandardImageProcessor::new();
+        assert_eq!(processor.priority(), 10);
+    }
+
+    #[test]
+    fn test_standard_image_processor_media_type() {
+        let processor = StandardImageProcessor::new();
+        assert_eq!(processor.media_type(), MediaType::Image);
+    }
+
+    #[test]
+    fn test_standard_image_processor_default() {
+        let processor = StandardImageProcessor::default();
+        assert!(processor.supports(Path::new("test.jpg")));
+    }
+
+    #[test]
+    fn test_clean_exif_string() {
+        assert_eq!(clean_exif_string("\"value\""), "value");
+        assert_eq!(clean_exif_string("'value'"), "value");
+        assert_eq!(clean_exif_string("value"), "value");
+        assert_eq!(clean_exif_string("  \"value\"  "), "value");
+        assert_eq!(clean_exif_string("no quotes"), "no quotes");
+        assert_eq!(clean_exif_string(""), "");
+    }
+
+    #[test]
+    fn test_clean_exif_string_edge_cases() {
+        assert_eq!(clean_exif_string("\""), "\"");
+        assert_eq!(clean_exif_string("'"), "'");
+        assert_eq!(clean_exif_string("\"\""), "");
+        assert_eq!(clean_exif_string("''"), "");
+        assert_eq!(clean_exif_string("\"incomplete"), "\"incomplete");
+    }
+
+    #[test]
+    fn test_exif_tag_gps() {
+        assert_eq!(ExifTag::from_raw("Gps", 1), Some(ExifTag::GPSLatitudeRef));
+        assert_eq!(ExifTag::from_raw("Gps", 2), Some(ExifTag::GPSLatitude));
+        assert_eq!(ExifTag::from_raw("Gps", 3), Some(ExifTag::GPSLongitudeRef));
+        assert_eq!(ExifTag::from_raw("Gps", 4), Some(ExifTag::GPSLongitude));
+        assert_eq!(ExifTag::from_raw("Gps", 6), Some(ExifTag::GPSAltitude));
+    }
+
+    #[test]
+    fn test_exif_tag_vendor_specific() {
+        assert_eq!(ExifTag::from_raw("Tiff", 305), Some(ExifTag::Software));
+        assert_eq!(ExifTag::from_raw("Exif", 37520), Some(ExifTag::SerialNumber));
+    }
+
+    #[test]
+    fn test_exif_tag_extended() {
+        assert_eq!(ExifTag::from_raw("Exif", 34850), Some(ExifTag::ExposureProgram));
+        assert_eq!(ExifTag::from_raw("Exif", 37379), Some(ExifTag::ExposureBiasValue));
+        assert_eq!(ExifTag::from_raw("Exif", 41986), Some(ExifTag::ExposureMode));
+        assert_eq!(ExifTag::from_raw("Exif", 37383), Some(ExifTag::MeteringMode));
     }
 }

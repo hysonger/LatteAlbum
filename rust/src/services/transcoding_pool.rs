@@ -66,3 +66,78 @@ impl Default for TranscodingPool {
         Self::new(4)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transcoding_pool_new_with_custom_threads() {
+        let pool = TranscodingPool::new(2);
+        assert!(pool.scope(|_| true));
+    }
+
+    #[test]
+    fn test_transcoding_pool_new_with_single_thread() {
+        let pool = TranscodingPool::new(1);
+        let result = pool.scope(|_| 42);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_transcoding_pool_default() {
+        let pool = TranscodingPool::default();
+        let result = pool.scope(|_| "default");
+        assert_eq!(result, "default");
+    }
+
+    #[test]
+    fn test_transcoding_pool_scope_return_value() {
+        let pool = TranscodingPool::new(4);
+
+        let result = pool.scope(|_| {
+            123
+        });
+
+        assert_eq!(result, 123);
+    }
+
+    #[test]
+    fn test_transcoding_pool_scope_with_vec() {
+        let pool = TranscodingPool::new(2);
+
+        let result = pool.scope(|_| {
+            vec![1, 2, 3, 4, 5]
+        });
+
+        assert_eq!(result, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_transcoding_pool_clone() {
+        let pool1 = TranscodingPool::new(4);
+        let pool2 = pool1.clone();
+
+        let result1 = pool1.scope(|_| "pool1");
+        let result2 = pool2.scope(|_| "pool2");
+
+        assert_eq!(result1, "pool1");
+        assert_eq!(result2, "pool2");
+    }
+
+    #[test]
+    fn test_transcoding_pool_spawn() {
+        let pool = TranscodingPool::new(2);
+        let executed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let executed_clone = executed.clone();
+        pool.spawn(move || {
+            executed_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        pool.scope(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(executed.load(std::sync::atomic::Ordering::SeqCst));
+        });
+    }
+}

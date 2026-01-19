@@ -148,3 +148,117 @@ pub fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> 
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_media_type_variants() {
+        assert_eq!(MediaType::Image, MediaType::Image);
+        assert_eq!(MediaType::Video, MediaType::Video);
+        assert_eq!(MediaType::Heif, MediaType::Heif);
+        assert_ne!(MediaType::Image, MediaType::Video);
+    }
+
+    #[test]
+    fn test_media_metadata_default() {
+        let metadata = MediaMetadata::default();
+        assert!(metadata.mime_type.is_none());
+        assert!(metadata.file_size.is_none());
+        assert!(metadata.width.is_none());
+        assert!(metadata.height.is_none());
+        assert!(metadata.exif_timestamp.is_none());
+        assert!(metadata.camera_make.is_none());
+        assert!(metadata.camera_model.is_none());
+    }
+
+    #[test]
+    fn test_media_metadata_with_values() {
+        let mut metadata = MediaMetadata::default();
+        metadata.mime_type = Some("image/jpeg".to_string());
+        metadata.file_size = Some(1024);
+        metadata.width = Some(1920);
+        metadata.height = Some(1080);
+
+        assert_eq!(metadata.mime_type, Some("image/jpeg".to_string()));
+        assert_eq!(metadata.file_size, Some(1024));
+        assert_eq!(metadata.width, Some(1920));
+        assert_eq!(metadata.height, Some(1080));
+    }
+
+    #[test]
+    fn test_processing_error_display() {
+        let error = ProcessingError::UnsupportedFormat("heic".to_string());
+        assert_eq!(format!("{}", error), "Unsupported file format: heic");
+
+        let error = ProcessingError::Processing("decode failed".to_string());
+        assert_eq!(format!("{}", error), "Processing error: decode failed");
+    }
+
+    #[test]
+    fn test_processor_registry_new() {
+        let registry = ProcessorRegistry::new(None);
+        let pool = registry.transcoding_pool();
+        assert!(pool.is_none());
+    }
+
+    #[test]
+    fn test_processor_registry_with_transcoding_pool() {
+        let transcoding_pool = Arc::new(crate::services::TranscodingPool::new(4));
+        let registry = ProcessorRegistry::new(Some(transcoding_pool.clone()));
+        let pool = registry.transcoding_pool();
+        assert!(pool.is_some());
+    }
+
+    #[test]
+    fn test_processor_registry_register() {
+        let mut registry = ProcessorRegistry::new(None);
+        let processor = Arc::new(crate::processors::image_processor::StandardImageProcessor::new());
+        registry.register(processor);
+        assert!(!registry.processors.is_empty());
+    }
+
+    #[test]
+    fn test_processor_registry_find_processor() {
+        let mut registry = ProcessorRegistry::new(None);
+        let processor = Arc::new(crate::processors::image_processor::StandardImageProcessor::new());
+        registry.register(processor);
+
+        let result = registry.find_processor(Path::new("test.jpg"));
+        assert!(result.is_some());
+
+        let result = registry.find_processor(Path::new("test.mp4"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_processor_registry_find_processor_empty() {
+        let registry = ProcessorRegistry::new(None);
+        let result = registry.find_processor(Path::new("test.jpg"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_processor_registry_priority_sorting() {
+        let mut registry = ProcessorRegistry::new(None);
+
+        let processor = Arc::new(crate::processors::image_processor::StandardImageProcessor::new());
+        registry.register(processor);
+
+        let result = registry.find_processor(Path::new("test.jpg"));
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_processing_error_from_io() {
+        use std::io;
+        let io_error = io::Error::new(io::ErrorKind::NotFound, "file not found");
+        let error: ProcessingError = io_error.into();
+        match error {
+            ProcessingError::IoError(_) => assert!(true),
+            _ => assert!(false),
+        }
+    }
+}
