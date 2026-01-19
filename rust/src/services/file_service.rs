@@ -30,31 +30,26 @@ impl FileService {
 /// Service for file operations - methods
 impl FileService {
     /// Get thumbnail for a file
-    /// For "full" size (target_size == 0), browser-native formats are served directly without transcoding
+    /// For "full" size, browser-native formats are served directly without transcoding
     /// (JPEG, PNG, GIF, WebP, AVIF, SVG). Other formats like HEIC/HEIF will be transcoded.
     /// Returns (data, mime_type) tuple. For thumbnails, mime_type is "image/jpeg".
+    ///
+    /// Parameters:
+    /// - `size_label`: Cache key ("small", "medium", "large", "full")
+    /// - `target_size`: Numeric size for thumbnail generation (width or height based on fit_to_height)
+    /// - `fit_to_height`: Whether to fit to height (true) or width (false)
     pub async fn get_thumbnail(
         &self,
         file_id: &str,
+        size_label: &str,
         target_size: u32,
         fit_to_height: bool,
     ) -> Result<Option<(Vec<u8>, String)>, Box<dyn std::error::Error>> {
         // Check if this is a full-size request
-        let is_full_size = target_size == 0;
-
-        // Determine size label for caching
-        let size_label = if is_full_size {
-            "full".to_string()
-        } else {
-            match target_size {
-                w if w <= 300 => "small".to_string(),
-                w if w <= 450 => "medium".to_string(),
-                _ => "large".to_string(),
-            }
-        };
+        let is_full_size = size_label == "full";
 
         // For all sizes including full, check disk cache first
-        if let Some(data) = self.cache.get_thumbnail(file_id, &size_label).await {
+        if let Some(data) = self.cache.get_thumbnail(file_id, size_label).await {
             // Thumbnails are always JPEG; full-size cache uses original format
             let mime_type = if is_full_size {
                 guess_mime_type_from_path(file_id)
@@ -78,7 +73,7 @@ impl FileService {
                             let mime_type = guess_mime_type(&file.file_name);
                             // Cache the data (Bytes::from takes ownership, so we clone for return)
                             let cache_data = Bytes::from(data.clone());
-                            let _ = self.cache.put_thumbnail_bytes(file_id, &size_label, cache_data).await;
+                            let _ = self.cache.put_thumbnail_bytes(file_id, size_label, cache_data).await;
                             return Ok(Some((data, mime_type)));
                         }
                     }
@@ -90,7 +85,7 @@ impl FileService {
                                 // Cache the generated thumbnail (all sizes including full)
                                 // Clone for caching since we need to return the original data
                                 let cache_data = Bytes::from(thumbnail_data.clone());
-                                let _ = self.cache.put_thumbnail_bytes(file_id, &size_label, cache_data).await;
+                                let _ = self.cache.put_thumbnail_bytes(file_id, size_label, cache_data).await;
                                 return Ok(Some((thumbnail_data, "image/jpeg".to_string())));
                             }
                             Ok(None) => {

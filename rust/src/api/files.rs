@@ -16,16 +16,15 @@ use tokio::fs::File;
 use tracing::warn;
 use tokio_util::io::ReaderStream;
 
-/// Get size label from target width
-fn get_size_label(target_width: u32) -> String {
-    if target_width == 0 {
-        "full".to_string()
-    } else if target_width <= 300 {
-        "small".to_string()
-    } else if target_width <= 450 {
-        "medium".to_string()
-    } else {
-        "large".to_string()
+/// Get size label from size string
+/// This is used to determine the cache key and which thumbnail size to generate
+fn get_size_label(size_str: &str) -> &'static str {
+    match size_str {
+        "small" => "small",
+        "medium" => "medium",
+        "large" => "large",
+        "full" => "full",
+        _ => "medium", // default
     }
 }
 
@@ -162,7 +161,7 @@ pub async fn get_thumbnail(
     let size_str = size.size.as_deref().unwrap_or("medium");
     let thumbnail_size = state.config.get_thumbnail_size(size_str);
     let fit_to_height = size_str == "large";  // large size uses fixed height
-    let size_label = get_size_label(thumbnail_size);
+    let size_label = get_size_label(size_str);
 
     // 1. Check memory cache first - return directly if hit (already in memory)
     if let Some(data) = state.cache_service.get_thumbnail(&id, &size_label).await {
@@ -224,7 +223,7 @@ pub async fn get_thumbnail(
     }
 
     // 3. Not in cache - generate thumbnail
-    match state.file_service.get_thumbnail(&id, thumbnail_size, fit_to_height).await {
+    match state.file_service.get_thumbnail(&id, &size_label, thumbnail_size, fit_to_height).await {
         Ok(Some((data, mime_type))) => {
             let mut etag = String::with_capacity(64);
             write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
