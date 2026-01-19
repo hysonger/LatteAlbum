@@ -3,10 +3,10 @@
     <div class="viewer-content">
       <button class="nav-btn prev" @click="prev" :disabled="!hasPrev">‹</button>
       
-      <div class="media-container">
-        <img 
-          v-if="isImage" 
-          :src="currentImageUrl ?? undefined" 
+      <div class="media-container" :style="containerStyle">
+        <img
+          v-if="isImage"
+          :src="currentImageUrl ?? undefined"
           :alt="currentFile?.fileName"
           @load="handleImageLoad"
           @error="handleError"
@@ -187,6 +187,35 @@ const isVideo = computed(() => currentFile.value?.fileType === 'video')
 
 const hasPrev = computed(() => currentIndex.value > 0)
 const hasNext = computed(() => currentIndex.value < props.neighbors.length - 1)
+
+// 图片容器样式：根据原始图片尺寸计算固定的宽高比，避免从 large 切换到 full 时视觉跳变
+const containerStyle = computed(() => {
+  if (!currentFile.value?.width || !currentFile.value?.height) {
+    return {}
+  }
+
+  const maxWidth = window.innerWidth * 0.9
+  const maxHeight = window.innerHeight * 0.8
+
+  const imgAspectRatio = currentFile.value.width / currentFile.value.height
+  const containerAspectRatio = maxWidth / maxHeight
+
+  let width: number, height: number
+  if (imgAspectRatio > containerAspectRatio) {
+    // 图片更宽，以宽度为基准
+    width = maxWidth
+    height = maxWidth / imgAspectRatio
+  } else {
+    // 图片更高或相等，以高度为基准
+    height = maxHeight
+    width = maxHeight * imgAspectRatio
+  }
+
+  return {
+    width: `${width}px`,
+    height: `${height}px`
+  }
+})
 
 // 格式化日期
 const formatDate = (dateString: string, timezoneOffset?: string) => {
@@ -563,17 +592,15 @@ defineExpose({
 }
 
 .media-container {
-  max-width: 90%;
-  max-height: 90%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.media-container img,
-.media-container video {
-  max-width: 100%;
-  max-height: 80vh;
+/* 图片容器固定尺寸，避免从 large 切换到 full 时视觉跳变 */
+.media-container img {
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
