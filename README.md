@@ -29,6 +29,9 @@ TODO：视频缩略图
 
 - Rust 1.75+
 - Node.js 18+
+- libheif
+    用于 HEIF 格式支持。根据系统不同，可能需要安装-dev后缀的版本用于编译。
+    该库编解码还需要依赖其他库，请参考[libheif 文档](https://github.com/strukturag/libheif)
 - FFmpeg（用于视频缩略图生成）
 
 ### 开发构建与运行
@@ -38,7 +41,7 @@ TODO：视频缩略图
 cd rust
 # 如果系统上已经正确安装了依赖库
 cargo run
-# 如果系统上依赖库版本太旧，满足不了libheif-rs等的需要，可以从vendor目录中编译
+# 如果系统上依赖库版本太旧，满足不了libheif-rs等的需要，可以带 build-vendor feature 从vendor目录中编译
 # 注意，这并不会自动处理依赖库的依赖库，您可能需要自行补全库以及libheif的特性开关
 ./cargo-with-vendor.sh run
 

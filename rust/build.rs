@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+//use std::path::PathBuf;
 
 fn main() {
     // Check if we should build from project's vendor directory
@@ -13,7 +13,8 @@ fn main() {
         link_system_libraries();
     }
 
-    // Always link against C++ standard library
+    // Link against C++ standard library in Linux, or there would be compile error
+    #[cfg(target_os = "linux")]
     println!("cargo:rustc-link-lib=dylib=stdc++");
 }
 
