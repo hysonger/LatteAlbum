@@ -140,6 +140,7 @@ impl ScanStateManager {
                     };
 
                     // 每 N 个文件发送一次进度消息，或在阶段变更/完成时发送
+                    // 注意：Idle 状态不发送广播消息，避免新连接收到历史消息
                     let should_send = matches!(
                         update,
                         ProgressUpdate::SetPhase(_)
@@ -150,15 +151,23 @@ impl ScanStateManager {
                     ) || processed.saturating_sub(last_progress_reported) >= interval;
 
                     if should_send {
-                        let phase_str = format!("{:?}", current_state.phase);
+                        // 对于完成/错误/取消状态，先保存要广播的 phase
+                        let broadcast_phase = if matches!(update, ProgressUpdate::Completed | ProgressUpdate::Error | ProgressUpdate::Cancelled) {
+                            current_state.phase.clone()
+                        } else {
+                            current_state.phase.clone()
+                        };
+
+                        let phase_str = format!("{:?}", broadcast_phase);
+                        let scanning = current_state.scanning;
                         let msg = ScanProgressMessage {
-                            scanning: current_state.scanning,
+                            scanning,
                             phase: Some(phase_str.clone()),
                             total_files: current_state.total_files,
                             success_count: current_state.success_count,
                             failure_count: current_state.failure_count,
                             progress_percentage: percentage,
-                            status: Self::status_from_phase(&current_state.phase),
+                            status: Self::status_from_phase(&broadcast_phase),
                             files_to_add: current_state.files_to_add,
                             files_to_update: current_state.files_to_update,
                             files_to_delete: current_state.files_to_delete,
@@ -166,6 +175,20 @@ impl ScanStateManager {
                         };
                         let _ = tx_clone.send(msg);
                         last_progress_reported = processed;
+
+                        // 广播完成后，将状态重置为 Idle，避免 broadcast channel 保存完成状态
+                        // 这样新连接不会收到历史完成消息
+                        if matches!(update, ProgressUpdate::Completed | ProgressUpdate::Error | ProgressUpdate::Cancelled) {
+                            current_state.phase = ScanPhase::Idle;
+                            current_state.scanning = false;
+                            current_state.total_files = 0;
+                            current_state.success_count = 0;
+                            current_state.failure_count = 0;
+                            current_state.files_to_add = 0;
+                            current_state.files_to_update = 0;
+                            current_state.files_to_delete = 0;
+                            current_state.start_time = None;
+                        }
                     }
                 }
             }
@@ -438,8 +461,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
+        // 扫描完成后状态会重置为 Idle，避免 broadcast channel 保存历史消息
         assert!(!state.scanning);
-        assert_eq!(state.phase, ScanPhase::Completed);
+        assert_eq!(state.phase, ScanPhase::Idle);
     }
 
     #[tokio::test]
@@ -451,8 +475,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
+        // 扫描完成后状态会重置为 Idle，避免 broadcast channel 保存历史消息
         assert!(!state.scanning);
-        assert_eq!(state.phase, ScanPhase::Error);
+        assert_eq!(state.phase, ScanPhase::Idle);
     }
 
     #[tokio::test]
@@ -464,8 +489,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
+        // 扫描完成后状态会重置为 Idle，避免 broadcast channel 保存历史消息
         assert!(!state.scanning);
-        assert_eq!(state.phase, ScanPhase::Cancelled);
+        assert_eq!(state.phase, ScanPhase::Idle);
     }
 
     #[tokio::test]
@@ -522,5 +548,39 @@ mod tests {
 
         let state1 = manager1.get_state();
         assert_eq!(state1.phase, ScanPhase::Collecting);
+    }
+
+    /// 测试扫描完成时会广播消息，然后状态重置为 Idle
+    #[tokio::test]
+    async fn test_scan_state_manager_broadcast_before_reset() {
+        let (tx, mut rx) = broadcast::channel(100);
+        let manager = ScanStateManager::new_with_interval(tx, 10);
+
+        // Start a scan
+        manager.started();
+
+        // Complete the scan
+        manager.completed();
+
+        // Should receive the completed broadcast message (skip the started message)
+        let mut completed_msg = None;
+        while let Ok(msg) = rx.recv().await {
+            if msg.status == "completed" {
+                completed_msg = Some(msg);
+                break;
+            }
+        }
+
+        let msg = completed_msg.expect("Should receive completed message");
+        assert_eq!(msg.status, "completed");
+        assert!(!msg.scanning);
+
+        // Wait for state to reset
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // State should be reset to Idle (not Completed)
+        let state = manager.get_state();
+        assert_eq!(state.phase, ScanPhase::Idle);
+        assert!(!state.scanning);
     }
 }
