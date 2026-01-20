@@ -21,6 +21,9 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 # Database
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono"] }
 
+# Testing utilities (used by test fixtures/helpers in library)
+tempfile = "3"
+
 # Image processing
 image = { version = "0.25", features = ["png", "jpeg", "gif", "webp", "tiff", "rayon"] }
 
@@ -81,6 +84,9 @@ tokio-test = "0.4"
 webp = "0.3"
 tempfile = "3"
 assert_fs = "1"
+tokio-tungstenite = "0.28"
+futures = "0.3"
+tower = { version = "0.5", features = ["util", "timeout"] }
 
 [build-dependencies]
 pkg-config = "0.3"

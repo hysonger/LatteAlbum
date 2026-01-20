@@ -36,6 +36,11 @@ pub struct App {
 }
 
 impl App {
+    /// Get a clone of the router for testing
+    pub fn router_clone(&self) -> Router {
+        self.router.clone()
+    }
+
     /// Create a new application instance
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize database

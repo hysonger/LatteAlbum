@@ -8,4 +8,8 @@ pub mod extraction;
 pub mod websocket;
 pub mod utils;
 
+// Test fixtures and helpers (available for integration tests)
+pub mod fixtures;
+pub mod helpers;
+
 pub use db::pool::DatabasePool;

@@ -24,3 +24,5 @@ src/main/resources/static/
 **/output.log
 **/benchmark.log
 output/
+
+rust/tests/fixtures/images/
