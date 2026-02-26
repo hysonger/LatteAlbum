@@ -90,11 +90,13 @@ impl MediaProcessor for VideoProcessor {
             let path = path.to_path_buf();
             let ffmpeg_path = self.ffmpeg_path.clone();
 
-            return tokio::task::spawn_blocking(move || {
+            let result = tokio::task::spawn_blocking(move || {
                 generate_video_thumbnail(&path, _target_size, ffmpeg_path.as_deref())
             })
             .await
             .map_err(|e| ProcessingError::Processing(e.to_string()))?;
+
+            return result.map(Some).map_err(|e| ProcessingError::Processing(e.to_string()));
         }
 
         #[cfg(not(feature = "video-processing"))]
@@ -109,6 +111,8 @@ impl MediaProcessor for VideoProcessor {
 #[cfg(feature = "video-processing")]
 fn extract_video_metadata(path: &Path) -> Result<(Option<i32>, Option<i32>, Option<f64>, Option<String>), ProcessingError> {
     use ffmpeg_next::format::input;
+    use ffmpeg_next::codec::context::Context;
+    use ffmpeg_next::media::Type;
 
     let input = input(path).map_err(|e| ProcessingError::ExternalTool(e.to_string()))?;
 
@@ -119,24 +123,33 @@ fn extract_video_metadata(path: &Path) -> Result<(Option<i32>, Option<i32>, Opti
 
     // Get stream information
     for stream in input.streams() {
-        if stream.codec().medium() == ffmpeg_next::media::Type::Video {
-            let codec_ctx = stream.codec();
-            width = Some(codec_ctx.width() as i32);
-            height = Some(codec_ctx.height() as i32);
-            codec = codec_ctx.name().map(|s| s.to_string());
+        // Check if this is a video stream by checking frames
+        if stream.frames() > 0 {
+            // Get dimensions from decoder
+            if let Ok(params) = Context::from_parameters(stream.parameters()) {
+                if let Ok(decoder) = params.decoder().video() {
+                    width = Some(decoder.width() as i32);
+                    height = Some(decoder.height() as i32);
+                    // Get codec name
+                    let codec_id = decoder.id();
+                    codec = Some(codec_id.name().to_string());
+                }
+            }
 
-            // Get duration from stream
-            if let Ok(d) = stream.duration() {
+            // Get duration from stream (returns i64 directly in new API)
+            let dur = stream.duration();
+            if dur > 0 {
                 let time_base = stream.time_base();
-                duration = Some(d as f64 * time_base.numer() as f64 / time_base.denom() as f64);
+                duration = Some(dur as f64 * time_base.numerator() as f64 / time_base.denominator() as f64);
             }
         }
     }
 
     // Get duration from format if not found in stream
     if duration.is_none() {
-        if let Ok(d) = input.duration() {
-            duration = Some(d as f64 / 1_000_000.0); // Convert from microseconds
+        let dur = input.duration();
+        if dur > 0 {
+            duration = Some(dur as f64 / 1_000_000.0); // Convert from microseconds
         }
     }
 
@@ -149,8 +162,163 @@ fn generate_video_thumbnail(
     target_width: u32,
     _ffmpeg_path: Option<&str>,
 ) -> Result<Vec<u8>, ProcessingError> {
-    // Simplified video thumbnail generation
-    // In a full implementation, this would use FFmpeg to extract a frame
-    // For now, return an empty placeholder
-    Ok(vec![])
+    use ffmpeg_next::format::input;
+    use ffmpeg_next::media::Type;
+    use ffmpeg_next::codec::context::Context;
+    use ffmpeg_next::software::scaling::{Context as ScalingContext, Flags};
+    use ffmpeg_next::format::Pixel;
+    use ffmpeg_next::util::frame::video::Video;
+
+    // Initialize FFmpeg
+    if let Err(e) = ffmpeg_next::init() {
+        tracing::warn!("Failed to initialize FFmpeg: {}", e);
+        return Err(ProcessingError::ExternalTool(e.to_string()));
+    }
+
+    // Open video file
+    let mut ictx = match input(path) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Failed to open video file: {}", e);
+            return Err(ProcessingError::ExternalTool(e.to_string()));
+        }
+    };
+
+    // Find video stream
+    let video_stream = match ictx.streams().best(Type::Video) {
+        Some(stream) => stream,
+        None => {
+            tracing::warn!("No video stream found");
+            return Err(ProcessingError::Processing("No video stream found".to_string()));
+        }
+    };
+
+    // Get video index early to avoid borrow conflicts
+    let video_index = video_stream.index();
+
+    // Create decoder
+    let decoder_ctx = match Context::from_parameters(video_stream.parameters()) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Failed to create decoder context: {}", e);
+            return Err(ProcessingError::ExternalTool(e.to_string()));
+        }
+    };
+
+    let mut decoder = match decoder_ctx.decoder().video() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Failed to create video decoder: {}", e);
+            return Err(ProcessingError::ExternalTool(e.to_string()));
+        }
+    };
+
+    // Seek to target time (default 1.0 second)
+    let offset_seconds = 1.0;
+    let timestamp = (offset_seconds * 1_000_000.0) as i64;
+
+    // Try to seek, ignore errors as we can still decode from start
+    let _ = ictx.seek(timestamp, ..timestamp);
+
+    // Calculate target height maintaining aspect ratio
+    let aspect_ratio = decoder.height() as f64 / decoder.width() as f64;
+    let target_height = (target_width as f64 * aspect_ratio) as u32;
+
+    // Create scaler for converting to RGB24
+    let mut scaler = match ScalingContext::get(
+        decoder.format(),
+        decoder.width(),
+        decoder.height(),
+        Pixel::RGB24,
+        target_width,
+        target_height,
+        Flags::BILINEAR,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Failed to create scaler: {}", e);
+            return Err(ProcessingError::ExternalTool(e.to_string()));
+        }
+    };
+    let mut frame_found = false;
+    let mut rgb_frame = Video::empty();
+
+    // Decode packets until we get a frame
+    for (stream_idx, packet) in ictx.packets() {
+        if stream_idx.index() == video_index {
+            if let Err(e) = decoder.send_packet(&packet) {
+                continue;
+            }
+
+            let mut decoded = Video::empty();
+            while let Ok(_) = decoder.receive_frame(&mut decoded) {
+                if scaler.run(&decoded, &mut rgb_frame).is_ok() {
+                    frame_found = true;
+                    break;
+                }
+            }
+
+            if frame_found {
+                break;
+            }
+        }
+    }
+
+    // Try EOF flush if no frame found
+    if !frame_found {
+        let _ = decoder.send_eof();
+        let mut decoded = Video::empty();
+        while let Ok(_) = decoder.receive_frame(&mut decoded) {
+            if scaler.run(&decoded, &mut rgb_frame).is_ok() {
+                frame_found = true;
+                break;
+            }
+        }
+    }
+
+    if !frame_found {
+        tracing::warn!("Failed to decode any frame from video");
+        return Err(ProcessingError::Processing("Failed to decode video frame".to_string()));
+    }
+
+    // Get RGB data and handle stride padding
+    let width = rgb_frame.width() as u32;
+    let height = rgb_frame.height() as u32;
+    let data = rgb_frame.data(0);
+    let stride = rgb_frame.stride(0);
+    let bytes_per_row = (width * 3) as usize;
+
+    // Create RGB image, handling stride padding if necessary
+    let rgb_image = if stride == 0 || stride == bytes_per_row {
+        // Data is tightly packed (or stride not available), use directly
+        image::RgbImage::from_raw(width, height, data.to_vec())
+            .ok_or_else(|| ProcessingError::Processing("Failed to create image from RGB data".to_string()))?
+    } else if stride > bytes_per_row {
+        // Data has padding, need to copy row by row to remove padding
+        let rgb_data: Vec<u8> = (0..height as usize)
+            .flat_map(|row| {
+                let row_offset = row * stride;
+                data[row_offset..row_offset + bytes_per_row].to_vec()
+            })
+            .collect();
+
+        image::RgbImage::from_raw(width, height, rgb_data)
+            .ok_or_else(|| ProcessingError::Processing("Failed to create image from RGB data".to_string()))?
+    } else {
+        // Stride is less than expected (shouldn't happen), try to use as-is
+        image::RgbImage::from_raw(width, height, data.to_vec())
+            .ok_or_else(|| ProcessingError::Processing("Failed to create image from RGB data".to_string()))?
+    };
+
+    // Encode as JPEG with 80% quality
+    let mut jpeg_bytes = Vec::new();
+    {
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 80);
+        if let Err(e) = encoder.encode_image(&rgb_image) {
+            tracing::warn!("Failed to encode JPEG: {}", e);
+            return Err(ProcessingError::Processing(e.to_string()));
+        }
+    }
+
+    Ok(jpeg_bytes)
 }

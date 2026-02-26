@@ -60,4 +60,10 @@ shift
 
 # Execute cargo command with vendor-build feature
 echo "Running cargo $CARGO_CMD with vendor-build feature..."
-cargo "$CARGO_CMD" --features vendor-build "$@"
+# Allow passing additional features via VIDEO_FEATURES env var
+EXTRA_FEATURES="${VIDEO_FEATURES:-}"
+if [ -n "$EXTRA_FEATURES" ]; then
+    cargo "$CARGO_CMD" --features "vendor-build,$EXTRA_FEATURES" "$@"
+else
+    cargo "$CARGO_CMD" --features vendor-build "$@"
+fi
