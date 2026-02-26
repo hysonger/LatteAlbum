@@ -12,11 +12,52 @@ Latte Album is a personal photo album application for NAS deployment, rewritten 
 
 | Command | Description |
 |---------|-------------|
-| `cargo run` | Development |
+| `cargo run` | Development (requires system libheif) |
+| `./cargo-with-vendor.sh run` | Development with vendor-built libheif |
 | `cargo build --release` | Release build |
+| `./cargo-with-vendor.sh build --release` | Release build with vendor-built libheif |
 | `cargo test` | All tests |
+| `./cargo-with-vendor.sh test` | Tests with vendor-built libheif |
 | `cargo check` | Check without linking |
+| `./cargo-with-vendor.sh check` | Check with vendor-built libheif |
 | `cargo fmt` / `cargo clippy` | Format / Lint |
+
+#### Building with Self-compiled libheif
+
+This project uses a vendored version of libheif instead of the system library. This is necessary because:
+- System library versions may be too old to meet requirements of libheif-rs
+- Provides consistent build behavior across different environments
+
+**Usage**: Always use `./cargo-with-vendor.sh` instead of plain `cargo` commands:
+
+```bash
+cd rust
+
+# Development
+./cargo-with-vendor.sh run
+./cargo-with-vendor.sh build
+
+# Release
+./cargo-with-vendor.sh build --release
+
+# Testing
+./cargo-with-vendor.sh test
+
+# Type checking
+./cargo-with-vendor.sh check
+```
+
+**How it works**:
+1. The script builds libheif from `rust/vendor/libheif` using CMake
+2. Installs to `rust/target/vendor-build/install`
+3. Sets `PKG_CONFIG_PATH` to point to the built library
+4. Runs cargo with `--features vendor-build` flag
+
+**Manual approach** (if needed):
+```bash
+export PKG_CONFIG_PATH="$PWD/target/vendor-build/install/lib/pkgconfig:$PKG_CONFIG_PATH"
+cargo run --features vendor-build
+```
 
 ### Frontend (in `frontend/` directory)
 
