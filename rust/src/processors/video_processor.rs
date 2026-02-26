@@ -4,6 +4,51 @@ use crate::processors::processor_trait::{
 use async_trait::async_trait;
 use std::path::Path;
 
+#[cfg(feature = "video-processing")]
+use ffmpeg_next::codec::packet::side_data::Type as PacketSideDataType;
+
+/// Get rotation angle from video stream's side_data (DisplayMatrix)
+#[cfg(feature = "video-processing")]
+fn get_rotation_angle(stream: &ffmpeg_next::Stream) -> Option<i32> {
+    for side_data in stream.side_data() {
+        if side_data.kind() == PacketSideDataType::DisplayMatrix {
+            let data = side_data.data();
+
+            // DisplayMatrix is a 3x3 matrix of int32_t (9 x 4 = 36 bytes)
+            // Format: 16.16 fixed-point representation
+            // Layout: [a, b, u, c, d, v, x, y, w] representing a 3x3 matrix
+            if data.len() >= 36 {
+                let matrix: &[i32] = unsafe {
+                    std::slice::from_raw_parts(
+                        data.as_ptr() as *const i32,
+                        9
+                    )
+                };
+
+                // Convert from fixed-point (16.16) to floating-point
+                let conv_fp = |x: i32| x as f64 / (1i32 << 16) as f64;
+
+                // Calculate scale factors
+                let scale_0 = (conv_fp(matrix[0]).powi(2) + conv_fp(matrix[3]).powi(2)).sqrt();
+                let scale_1 = (conv_fp(matrix[1]).powi(2) + conv_fp(matrix[4]).powi(2)).sqrt();
+
+                // Normalize matrix elements
+                let a = if scale_0 > 0.0 { conv_fp(matrix[0]) / scale_0 } else { conv_fp(matrix[0]) };
+                let b = if scale_1 > 0.0 { conv_fp(matrix[1]) / scale_1 } else { conv_fp(matrix[1]) };
+
+                // Calculate rotation angle: atan2(b, a)
+                // Note: FFmpeg uses counter-clockwise as positive, so we negate
+                let rotation = -b.atan2(a) * 180.0 / std::f64::consts::PI;
+
+                tracing::debug!("DisplayMatrix rotation: {} degrees", rotation);
+                return Some(rotation.round() as i32);
+            }
+        }
+    }
+
+    None
+}
+
 /// Video processor for MP4, AVI, MOV, MKV, etc.
 /// Uses ffmpeg-next for video processing when available
 pub struct VideoProcessor {
@@ -196,7 +241,7 @@ fn generate_video_thumbnail(
     // Get video index early to avoid borrow conflicts
     let video_index = video_stream.index();
 
-    // Create decoder
+    // Create decoder first to get original dimensions
     let decoder_ctx = match Context::from_parameters(video_stream.parameters()) {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -213,6 +258,26 @@ fn generate_video_thumbnail(
         }
     };
 
+    // Get rotation angle from video stream
+    let rotation = get_rotation_angle(&video_stream);
+
+    // Determine if aspect ratio needs to be swapped for target size calculation
+    // 90, -90, 270, -270 degree rotations swap width and height visually
+    let needs_swap = matches!(rotation, Some(r) if r == 90 || r == -90 || r == 270 || r == -270);
+
+    // Use original decoder dimensions for scaler
+    let (scaler_width, scaler_height) = (decoder.width(), decoder.height());
+    let (target_width, target_height) = if needs_swap {
+        // For 90/-90 rotation, the visual aspect ratio is swapped
+        let aspect_ratio = scaler_width as f64 / scaler_height as f64;
+        let target_h = (target_width as f64 / aspect_ratio) as u32;
+        (target_width, target_h)
+    } else {
+        let aspect_ratio = scaler_height as f64 / scaler_width as f64;
+        let target_h = (target_width as f64 * aspect_ratio) as u32;
+        (target_width, target_h)
+    };
+
     // Seek to target time (default 1.0 second)
     let offset_seconds = 1.0;
     let timestamp = (offset_seconds * 1_000_000.0) as i64;
@@ -220,15 +285,11 @@ fn generate_video_thumbnail(
     // Try to seek, ignore errors as we can still decode from start
     let _ = ictx.seek(timestamp, ..timestamp);
 
-    // Calculate target height maintaining aspect ratio
-    let aspect_ratio = decoder.height() as f64 / decoder.width() as f64;
-    let target_height = (target_width as f64 * aspect_ratio) as u32;
-
-    // Create scaler for converting to RGB24
+    // Create scaler for converting to RGB24 - always use original decoder dimensions
     let mut scaler = match ScalingContext::get(
         decoder.format(),
-        decoder.width(),
-        decoder.height(),
+        scaler_width,
+        scaler_height,
         Pixel::RGB24,
         target_width,
         target_height,
@@ -310,11 +371,30 @@ fn generate_video_thumbnail(
             .ok_or_else(|| ProcessingError::Processing("Failed to create image from RGB data".to_string()))?
     };
 
+    // Apply rotation if needed
+    let normalized_rotation = rotation.map(|r| r.rem_euclid(360));
+
+    let final_image = match normalized_rotation {
+        Some(90) | Some(270) => {
+            image::imageops::rotate90(&rgb_image)
+        }
+        Some(180) => {
+            image::imageops::rotate180(&rgb_image)
+        }
+        Some(0) | None => {
+            rgb_image
+        }
+        _ => {
+            // Unsupported rotation angle, return as-is
+            rgb_image
+        }
+    };
+
     // Encode as JPEG with 80% quality
     let mut jpeg_bytes = Vec::new();
     {
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 80);
-        if let Err(e) = encoder.encode_image(&rgb_image) {
+        if let Err(e) = encoder.encode_image(&final_image) {
             tracing::warn!("Failed to encode JPEG: {}", e);
             return Err(ProcessingError::Processing(e.to_string()));
         }
