@@ -1,8 +1,12 @@
 # Latte Album
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
+[![Vue 3](https://img.shields.io/badge/Vue-3+-42b883.svg)](https://vuejs.org/)
+
 ![screenshot](./screenshot.png)
 
-为个人 NAS 设计的响应式网页相册应用，以简洁美观的瀑布流回顾您的照片与视频，不做多余的事。
+A responsive web album application designed for personal NAS, showcasing your photos and videos in a beautiful waterfall layout — doing nothing unnecessary.
 
 *PS：这个项目初期是 TRAE 写的，后期转向 Claude Code，我自己写的代码顶天了十几行（有时候自己已经看到问题点了，比问AI快），完全干的是 甲方+测试 的活。。。AI真的拯救懒人，以前做这种规模的项目想都不敢想*
 
