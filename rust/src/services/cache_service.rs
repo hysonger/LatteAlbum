@@ -12,6 +12,11 @@ pub struct CacheService {
     disk_cache_dir: PathBuf,
 }
 
+/// Generate cache key from file_id and size
+fn make_cache_key(file_id: &str, size: &str) -> String {
+    format!("{}_{}", file_id, size)
+}
+
 impl CacheService {
     /// Create a new cache service with configurable parameters
     pub async fn new(
@@ -22,10 +27,12 @@ impl CacheService {
         // Ensure cache directory exists
         fs::create_dir_all(cache_dir).await?;
 
-        let memory_cache = Arc::new(Cache::builder()
-            .max_capacity(max_capacity as u64)
-            .time_to_live(std::time::Duration::from_secs(ttl_seconds))
-            .build());
+        let memory_cache = Arc::new(
+            Cache::builder()
+                .max_capacity(max_capacity as u64)
+                .time_to_live(std::time::Duration::from_secs(ttl_seconds))
+                .build(),
+        );
 
         Ok(Self {
             memory_cache,
@@ -41,7 +48,7 @@ impl CacheService {
     /// Get thumbnail from cache
     /// Returns Bytes for efficient cloning in downstream operations
     pub async fn get_thumbnail(&self, file_id: &str, size: &str) -> Option<Bytes> {
-        let cache_key = format!("{}_{}", file_id, size);
+        let cache_key = make_cache_key(file_id, size);
 
         // 1. Check memory cache - Bytes supports cheap cloning
         if let Some(data) = self.memory_cache.get(&cache_key).await {
@@ -54,7 +61,9 @@ impl CacheService {
             // Convert to Bytes - cheap clone for memory cache insertion
             let bytes = Bytes::from(data);
             // Clone for memory cache (Bytes clone is O(1))
-            self.memory_cache.insert(cache_key.clone(), bytes.clone()).await;
+            self.memory_cache
+                .insert(cache_key.clone(), bytes.clone())
+                .await;
             return Some(bytes);
         }
 
@@ -64,7 +73,7 @@ impl CacheService {
     /// Get thumbnail disk cache path (for streaming)
     /// Returns None if not in disk cache
     pub fn get_thumbnail_disk_path(&self, file_id: &str, size: &str) -> Option<PathBuf> {
-        let cache_key = format!("{}_{}", file_id, size);
+        let cache_key = make_cache_key(file_id, size);
         let disk_path = self.disk_cache_dir.join(&cache_key);
         if disk_path.exists() {
             Some(disk_path)
@@ -75,7 +84,7 @@ impl CacheService {
 
     /// Check if thumbnail exists in cache (memory or disk)
     pub async fn has_thumbnail(&self, file_id: &str, size: &str) -> bool {
-        let cache_key = format!("{}_{}", file_id, size);
+        let cache_key = make_cache_key(file_id, size);
 
         // Check memory cache first
         if self.memory_cache.get(&cache_key).await.is_some() {
@@ -89,8 +98,13 @@ impl CacheService {
 
     /// Store thumbnail in cache
     /// Accepts Bytes or Vec<u8> for flexibility
-    pub async fn put_thumbnail(&self, file_id: &str, size: &str, data: &[u8]) -> std::io::Result<()> {
-        let cache_key = format!("{}_{}", file_id, size);
+    pub async fn put_thumbnail(
+        &self,
+        file_id: &str,
+        size: &str,
+        data: &[u8],
+    ) -> std::io::Result<()> {
+        let cache_key = make_cache_key(file_id, size);
 
         // Convert to Bytes for memory cache (efficient storage)
         let bytes = Bytes::from(data.to_vec());
@@ -107,11 +121,18 @@ impl CacheService {
 
     /// Alternative put method that accepts Bytes directly
     /// Avoids reallocation if caller already has Bytes
-    pub async fn put_thumbnail_bytes(&self, file_id: &str, size: &str, data: Bytes) -> std::io::Result<()> {
-        let cache_key = format!("{}_{}", file_id, size);
+    pub async fn put_thumbnail_bytes(
+        &self,
+        file_id: &str,
+        size: &str,
+        data: Bytes,
+    ) -> std::io::Result<()> {
+        let cache_key = make_cache_key(file_id, size);
 
         // Store in memory cache (Bytes is efficient)
-        self.memory_cache.insert(cache_key.clone(), data.clone()).await;
+        self.memory_cache
+            .insert(cache_key.clone(), data.clone())
+            .await;
 
         // Store in disk cache
         let disk_path = self.disk_cache_dir.join(&cache_key);
@@ -123,11 +144,11 @@ impl CacheService {
     /// Delete thumbnail from cache
     pub async fn delete_thumbnail(&self, file_id: &str, size: Option<&str>) {
         let keys: Vec<String> = match size {
-            Some(s) => vec![format!("{}_{}", file_id, s)],
+            Some(s) => vec![make_cache_key(file_id, s)],
             None => vec![
-                format!("{}_small", file_id),
-                format!("{}_medium", file_id),
-                format!("{}_large", file_id),
+                make_cache_key(file_id, "small"),
+                make_cache_key(file_id, "medium"),
+                make_cache_key(file_id, "large"),
             ],
         };
 

@@ -12,9 +12,11 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::io::SeekFrom;
 use tokio::fs::File;
-use tracing::warn;
+use tokio::io::AsyncSeekExt;
 use tokio_util::io::ReaderStream;
+use tracing::warn;
 
 /// Get size label from size string
 /// This is used to determine the cache key and which thumbnail size to generate
@@ -26,6 +28,46 @@ fn get_size_label(size_str: &str) -> &'static str {
         "full" => "full",
         _ => "medium", // default
     }
+}
+
+/// Generate ETag header value from file id and size label
+fn generate_etag(id: &str, size_label: &str) -> String {
+    format!("\"{}-{}\"", id, size_label)
+}
+
+/// Parsed range header result
+struct ParsedRange {
+    start: u64,
+    end: u64,
+}
+
+/// Parse HTTP Range header
+/// Returns None if the Range header is invalid or malformed
+fn parse_range_header(range_header: &str, file_size: u64) -> Option<ParsedRange> {
+    let range_str = range_header.strip_prefix("bytes=")?;
+
+    let range_part = range_str.split(',').next()?;
+    let parts: Vec<&str> = range_part.trim().split('-').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let start: u64 = parts[0].parse().ok()?;
+    let end: u64 = if parts[1].is_empty() {
+        file_size.saturating_sub(1)
+    } else {
+        parts[1].parse().ok()?
+    };
+
+    // Clamp to file size
+    let start = start.min(file_size.saturating_sub(1));
+    let end = end.min(file_size.saturating_sub(1));
+
+    if start > end {
+        return None;
+    }
+
+    Some(ParsedRange { start, end })
 }
 
 /// Query parameters for file list
@@ -99,7 +141,8 @@ pub async fn list_files(
             page,
             size,
         )
-        .await {
+        .await
+    {
         Ok(files) => files,
         Err(e) => {
             warn!("Failed to query files: {}", e);
@@ -109,7 +152,8 @@ pub async fn list_files(
 
     let total = match repo
         .count(params.path.as_deref(), params.filter_type.as_deref())
-        .await {
+        .await
+    {
         Ok(total) => total,
         Err(e) => {
             warn!("Failed to count files: {}", e);
@@ -125,14 +169,12 @@ pub async fn list_files(
         page,
         size,
         total_pages,
-    }).into_response()
+    })
+    .into_response()
 }
 
 #[debug_handler]
-pub async fn get_file(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
+pub async fn get_file(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     let repo = MediaFileRepository::new(&state.db);
 
     match repo.find_by_id(&id).await {
@@ -160,13 +202,12 @@ pub async fn get_thumbnail(
 
     let size_str = size.size.as_deref().unwrap_or("medium");
     let thumbnail_size = state.config.get_thumbnail_size(size_str);
-    let fit_to_height = size_str == "large";  // large size uses fixed height
+    let fit_to_height = size_str == "large"; // large size uses fixed height
     let size_label = get_size_label(size_str);
 
     // 1. Check memory cache first - return directly if hit (already in memory)
     if let Some(data) = state.cache_service.get_thumbnail(&id, &size_label).await {
-        let mut etag = String::with_capacity(64);
-        write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+        let etag = generate_etag(&id, &size_label);
 
         let mut response = Response::new(Body::from(data));
         response.headers_mut().insert(
@@ -185,13 +226,18 @@ pub async fn get_thumbnail(
     }
 
     // 2. Check disk cache - stream from file if exists
-    if let Some(disk_path) = state.cache_service.get_thumbnail_disk_path(&id, &size_label) {
+    if let Some(disk_path) = state
+        .cache_service
+        .get_thumbnail_disk_path(&id, &size_label)
+    {
         match File::open(&disk_path).await {
             Ok(file) => {
-                let file_size = tokio::fs::metadata(&disk_path).await.map(|m| m.len()).unwrap_or(0);
+                let file_size = tokio::fs::metadata(&disk_path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0);
 
-                let mut etag = String::with_capacity(64);
-                write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+                let etag = generate_etag(&id, &size_label);
 
                 let stream = ReaderStream::with_capacity(file, 32 * 1024);
 
@@ -213,27 +259,34 @@ pub async fn get_thumbnail(
                     axum::http::HeaderValue::from_str(&etag).unwrap(),
                 );
 
-                return (StatusCode::OK, response_headers, Body::from_stream(stream)).into_response();
+                return (StatusCode::OK, response_headers, Body::from_stream(stream))
+                    .into_response();
             }
             Err(e) => {
-                tracing::warn!("Failed to open disk cache file {}: {}", disk_path.display(), e);
+                tracing::warn!(
+                    "Failed to open disk cache file {}: {}",
+                    disk_path.display(),
+                    e
+                );
                 // Continue to generate new thumbnail
             }
         }
     }
 
     // 3. Not in cache - generate thumbnail
-    match state.file_service.get_thumbnail(&id, &size_label, thumbnail_size, fit_to_height).await {
+    match state
+        .file_service
+        .get_thumbnail(&id, &size_label, thumbnail_size, fit_to_height)
+        .await
+    {
         Ok(Some((data, mime_type))) => {
-            let mut etag = String::with_capacity(64);
-            write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+            let etag = generate_etag(&id, &size_label);
 
             let mut response = Response::new(Body::from(data));
             response.headers_mut().insert(
                 axum::http::header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_str(&mime_type).unwrap_or_else(|_| {
-                    axum::http::HeaderValue::from_static("image/jpeg")
-                }),
+                axum::http::HeaderValue::from_str(&mime_type)
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("image/jpeg")),
             );
             response.headers_mut().insert(
                 axum::http::header::CACHE_CONTROL,
@@ -273,7 +326,8 @@ pub async fn get_original(
             }
 
             let mime_type = file.mime_type.unwrap_or_else(|| {
-                let ext = path.extension()
+                let ext = path
+                    .extension()
                     .and_then(|e| e.to_str())
                     .map(|s| s.to_lowercase())
                     .unwrap_or_default();
@@ -289,7 +343,8 @@ pub async fn get_original(
                 }
             });
 
-            let file_size = tokio::fs::metadata(path).await
+            let file_size = tokio::fs::metadata(path)
+                .await
                 .map(|m| m.len())
                 .unwrap_or(0);
 
@@ -298,57 +353,56 @@ pub async fn get_original(
             }
 
             // Check for Range header (video streaming)
-            let range_header = headers.get("range");
-
-            if let Some(range_value) = range_header {
-                // Parse Range header: "bytes=start-end"
+            if let Some(range_value) = headers.get("range") {
                 let range_str = range_value.to_str().unwrap_or("");
-                if range_str.starts_with("bytes=") {
-                    let ranges: Vec<&str> = range_str[6..].split(',').collect();
-                    if let Some(range_part) = ranges.first() {
-                        let parts: Vec<&str> = range_part.trim().split('-').collect();
-                        if parts.len() == 2 {
-                            let start: u64 = parts[0].parse().unwrap_or(0);
-                            let end: u64 = parts[1].parse().unwrap_or(file_size.saturating_sub(1));
+                if let Some(range) = parse_range_header(range_str, file_size) {
+                    let content_length: u64 =
+                        range.end.saturating_sub(range.start).saturating_add(1);
 
-                            // Clamp to file size
-                            let start = start.min(file_size.saturating_sub(1));
-                            let end = end.min(file_size.saturating_sub(1));
-                            if start > end {
-                                return (StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range").into_response();
-                            }
+                    // Open file and seek to start position
+                    let mut file = match File::open(path).await {
+                        Ok(f) => f,
+                        Err(e) => {
+                            warn!("Failed to open file {}: {}", path.display(), e);
+                            return (StatusCode::NOT_FOUND, "Cannot open file").into_response();
+                        }
+                    };
 
-                            let content_length: u64 = end.saturating_sub(start).saturating_add(1);
-
-                            // Open file and seek to start position
-                            let mut file = match File::open(path).await {
-                                Ok(f) => f,
-                                Err(e) => {
-                                    warn!("Failed to open file {}: {}", path.display(), e);
-                                    return (StatusCode::NOT_FOUND, "Cannot open file").into_response();
-                                }
-                            };
-
-                            if start > 0 {
-                                if let Err(e) = file.seek(SeekFrom::Start(start)).await {
-                                    warn!("Failed to seek in file {}: {}", path.display(), e);
-                                    return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed").into_response();
-                                }
-                            }
-
-                            // Create streaming response
-                            let stream = ReaderStream::with_capacity(file, 64 * 1024);
-
-                            let mut response_headers = HeaderMap::new();
-                            response_headers.insert("Content-Type", mime_type.parse().unwrap());
-                            response_headers.insert("Content-Length", content_length.to_string().parse().unwrap());
-                            response_headers.insert("Content-Range", format!("bytes {}-{}/{}", start, end, file_size).parse().unwrap());
-                            response_headers.insert("Accept-Ranges", "bytes".parse().unwrap());
-
-                            return (StatusCode::PARTIAL_CONTENT, response_headers, Body::from_stream(stream)).into_response();
+                    if range.start > 0 {
+                        if let Err(e) = file.seek(SeekFrom::Start(range.start)).await {
+                            warn!("Failed to seek in file {}: {}", path.display(), e);
+                            return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed")
+                                .into_response();
                         }
                     }
+
+                    // Create streaming response
+                    let stream = ReaderStream::with_capacity(file, 64 * 1024);
+
+                    let mut response_headers = HeaderMap::new();
+                    response_headers.insert("Content-Type", mime_type.parse().unwrap());
+                    response_headers.insert(
+                        "Content-Length",
+                        content_length.to_string().parse().unwrap(),
+                    );
+                    response_headers.insert(
+                        "Content-Range",
+                        format!("bytes {}-{}/{}", range.start, range.end, file_size)
+                            .parse()
+                            .unwrap(),
+                    );
+                    response_headers.insert("Accept-Ranges", "bytes".parse().unwrap());
+
+                    return (
+                        StatusCode::PARTIAL_CONTENT,
+                        response_headers,
+                        Body::from_stream(stream),
+                    )
+                        .into_response();
                 }
+
+                // Invalid range header returns 416
+                return (StatusCode::RANGE_NOT_SATISFIABLE, "Invalid range").into_response();
             }
 
             // Full file request - use streaming for large files (videos)
@@ -425,8 +479,14 @@ pub async fn get_neighbors(
     match repo.find_by_id(&id).await {
         Ok(Some(file)) => {
             let response = if let Some(sort_time) = file.get_effective_sort_time() {
-                let previous = repo.find_neighbors(&id, sort_time, true).await.unwrap_or(None);
-                let next = repo.find_neighbors(&id, sort_time, false).await.unwrap_or(None);
+                let previous = repo
+                    .find_neighbors(&id, sort_time, true)
+                    .await
+                    .unwrap_or(None);
+                let next = repo
+                    .find_neighbors(&id, sort_time, false)
+                    .await
+                    .unwrap_or(None);
 
                 NeighborResponse { previous, next }
             } else {
