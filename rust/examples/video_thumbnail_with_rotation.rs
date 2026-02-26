@@ -269,8 +269,14 @@ fn main() {
     println!("Normalized rotation: {:?}", normalized_rotation);
 
     let final_image = match normalized_rotation {
-        Some(90) | Some(270) => {
-            println!("Applying 90-degree rotation");
+        Some(90) => {
+            // DisplayMatrix 90° = counter-clockwise 90° = rotate270
+            println!("Applying 270-degree rotation (counter-clockwise 90°)");
+            image::imageops::rotate270(&rgb_image)
+        }
+        Some(270) => {
+            // DisplayMatrix 270° (-90°) = clockwise 90° = rotate90
+            println!("Applying 90-degree rotation (clockwise 90°)");
             image::imageops::rotate90(&rgb_image)
         }
         Some(180) => {

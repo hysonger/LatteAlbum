@@ -375,7 +375,12 @@ fn generate_video_thumbnail(
     let normalized_rotation = rotation.map(|r| r.rem_euclid(360));
 
     let final_image = match normalized_rotation {
-        Some(90) | Some(270) => {
+        Some(90) => {
+            // DisplayMatrix 90° = counter-clockwise 90° = rotate270
+            image::imageops::rotate270(&rgb_image)
+        }
+        Some(270) => {
+            // DisplayMatrix 270° (-90°) = clockwise 90° = rotate90
             image::imageops::rotate90(&rgb_image)
         }
         Some(180) => {
