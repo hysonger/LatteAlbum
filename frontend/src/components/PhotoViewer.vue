@@ -263,15 +263,27 @@ const toggleInfo = () => {
   showDetailInfo.value = !showDetailInfo.value
 }
 
-const downloadMedia = async () => {
+const downloadVideo = async () => {
   if (!currentFile.value) return
 
   try {
     const response = await fileApi.getOriginalFile(currentFile.value.id)
     downloadFile(response.data, currentFile.value.fileName)
   } catch (error) {
-    console.error('下载文件失败:', error)
-    alert('下载文件失败，请稍后重试')
+    console.error('下载视频失败:', error)
+    alert('下载视频失败，请稍后重试')
+  }
+}
+
+const downloadOriginal = async () => {
+  if (!currentFile.value) return
+
+  try {
+    const response = await fileApi.getOriginalFile(currentFile.value.id)
+    downloadFile(response.data, currentFile.value.fileName)
+  } catch (error) {
+    console.error('下载原图失败:', error)
+    alert('下载原图失败，请稍后重试')
   }
 }
 

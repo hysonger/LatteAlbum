@@ -47,7 +47,7 @@ export const useGalleryStore = defineStore('gallery', () => {
       
       // 预加载下一批图片
       if (hasMore.value) {
-        preloadNextPage()
+        loadNextPage()
       }
     } catch (error) {
       console.error('加载页面失败:', error)
