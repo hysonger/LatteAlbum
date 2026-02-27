@@ -27,6 +27,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/rust"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 CACHE_DIR="$BACKEND_DIR/cache"
+DB_FILE="$BACKEND_DIR/data/album.db"
 TEST_DIR="$PROJECT_ROOT/tests/integration"
 
 # Server ports
@@ -120,21 +121,41 @@ wait_for_server() {
     return 1
 }
 
-# Clear thumbnail cache
+# Clear thumbnail cache and database
 clear_cache() {
-    log_info "Clearing thumbnail cache..."
+    log_info "Clearing thumbnail cache and database..."
     
+    # Clear thumbnail cache
     if [ -d "$CACHE_DIR" ]; then
-        local count=$(find "$CACHE_DIR" -type f | wc -l)
-        if [ "$count" -gt 0 ]; then
+        local cache_count=$(find "$CACHE_DIR" -type f 2>/dev/null | wc -l)
+        if [ "$cache_count" -gt 0 ]; then
             rm -f "$CACHE_DIR"/*
-            log_success "Cleared $count cached thumbnails"
+            log_success "Cleared $cache_count cached thumbnails"
         else
             log_info "Cache directory is already empty"
         fi
     else
         log_info "Cache directory does not exist, creating..."
         mkdir -p "$CACHE_DIR"
+    fi
+    
+    # Clear SQLite database
+    if [ -f "$DB_FILE" ]; then
+        local db_size=$(du -h "$DB_FILE" | cut -f1)
+        rm -f "$DB_FILE"
+        log_success "Cleared database file (size: $db_size)"
+    else
+        log_info "Database file does not exist"
+    fi
+    
+    # Also clear any WAL/SHM files
+    if [ -f "${DB_FILE}-wal" ]; then
+        rm -f "${DB_FILE}-wal"
+        log_info "Cleared database WAL file"
+    fi
+    if [ -f "${DB_FILE}-shm" ]; then
+        rm -f "${DB_FILE}-shm"
+        log_info "Cleared database SHM file"
     fi
 }
 
@@ -148,7 +169,12 @@ start_backend() {
         return 1
     fi
     
-    # Start backend in background
+    # Set photo base path to project root photos directory
+    export LATTE_BASE_PATH="$PROJECT_ROOT/photos"
+    # Set PKG_CONFIG_PATH for libheif
+    export PKG_CONFIG_PATH="$BACKEND_DIR/target/vendor-build/install/lib/pkgconfig:$PKG_CONFIG_PATH"
+    
+    # Start backend in background from rust directory
     cd "$BACKEND_DIR"
     ./cargo-with-vendor.sh run &
     BACKEND_PID=$!
