@@ -40,4 +40,4 @@ jobs:
           npm run build
 
       - name: Build Rust backend
-        run: cd rust && cargo build --release --no-default-features
+        run: cd rust && cargo build --no-default-features
