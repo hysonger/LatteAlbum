@@ -16,16 +16,48 @@ use tokio::fs::File;
 use tracing::warn;
 use tokio_util::io::ReaderStream;
 
-/// Get size label from size string
-/// This is used to determine the cache key and which thumbnail size to generate
-fn get_size_label(size_str: &str) -> &'static str {
-    match size_str {
-        "small" => "small",
-        "medium" => "medium",
-        "large" => "large",
-        "full" => "full",
-        _ => "medium", // default
-    }
+/// Build response headers for thumbnail with caching headers
+fn build_thumbnail_headers(size_label: &str, content_length: u64) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    let etag = format!("\"{}-{}\"", size_label, size_label);
+
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("image/jpeg"),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_LENGTH,
+        content_length.to_string().parse().unwrap(),
+    );
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("public, max-age=86400"),
+    );
+    headers.insert(
+        axum::http::header::ETAG,
+        etag.parse().unwrap(),
+    );
+    headers
+}
+
+/// Build response headers for thumbnail from memory cache
+fn build_memory_cache_response(data: &Bytes, size_label: &str) -> Response<Body> {
+    let etag = format!("\"{}-{}\"", size_label, size_label);
+
+    let mut response = Response::new(Body::from(data.clone()));
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("image/jpeg"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("public, max-age=86400"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::ETAG,
+        etag.parse().unwrap(),
+    );
+    response
 }
 
 /// Query parameters for file list
@@ -74,6 +106,18 @@ pub struct NeighborResponse {
 #[derive(Debug, Deserialize)]
 pub struct ThumbnailSize {
     pub size: Option<String>,
+}
+
+/// Get size label from size string
+/// This is used to determine the cache key and which thumbnail size to generate
+fn get_size_label(size_str: &str) -> &'static str {
+    match size_str {
+        "small" => "small",
+        "medium" => "medium",
+        "large" => "large",
+        "full" => "full",
+        _ => "medium", // default
+    }
 }
 
 #[debug_handler]
@@ -166,7 +210,7 @@ pub async fn get_thumbnail(
     // 1. Check memory cache first - return directly if hit (already in memory)
     if let Some(data) = state.cache_service.get_thumbnail(&id, &size_label).await {
         let mut etag = String::with_capacity(64);
-        write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+        write!(&mut etag, "\"{}-{}\"", id, size_label).unwrap();
 
         let mut response = Response::new(Body::from(data));
         response.headers_mut().insert(
@@ -191,7 +235,7 @@ pub async fn get_thumbnail(
                 let file_size = tokio::fs::metadata(&disk_path).await.map(|m| m.len()).unwrap_or(0);
 
                 let mut etag = String::with_capacity(64);
-                write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+                write!(&mut etag, "\"{}-{}\"", id, size_label).unwrap();
 
                 let stream = ReaderStream::with_capacity(file, 32 * 1024);
 
@@ -226,7 +270,7 @@ pub async fn get_thumbnail(
     match state.file_service.get_thumbnail(&id, &size_label, thumbnail_size, fit_to_height).await {
         Ok(Some((data, mime_type))) => {
             let mut etag = String::with_capacity(64);
-            write!(&mut etag, "\"{}-{}}}\"", id, size_label).unwrap();
+            write!(&mut etag, "\"{}-{}\"", id, size_label).unwrap();
 
             let mut response = Response::new(Body::from(data));
             response.headers_mut().insert(

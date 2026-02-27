@@ -163,6 +163,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { fileApi } from '@/services/api'
 import { useScreenSize } from '@/composables/useScreenSize'
+import { formatDuration, formatFileSize, formatDate, formatExposureTime, downloadFile } from '@/utils/format'
 import type { MediaFile } from '@/types'
 
 const { isMobile: isSmallScreen } = useScreenSize()
@@ -237,63 +238,6 @@ const containerStyle = computed(() => {
   }
 })
 
-// 格式化日期
-const formatDate = (dateString: string, timezoneOffset?: string) => {
-  // 直接解析时间字符串（不进行时区转换）
-  const date = new Date(dateString)
-
-  if (!timezoneOffset) {
-    // 无时区信息：直接显示时间
-    return `${date.toLocaleString('zh-CN')}`
-  }
-
-  // 解析时区偏移量（如"+08:00"）
-  const offsetHours = parseInt(timezoneOffset.substring(1, 3))
-  const offsetMinutes = parseInt(timezoneOffset.substring(4, 6))
-  const offsetSign = timezoneOffset[0] === '+' ? 1 : -1
-  const totalOffsetMinutes = offsetSign * (offsetHours * 60 + offsetMinutes)
-
-  // 检查是否与用户本地时区一致
-  const userOffset = date.getTimezoneOffset()
-  const isSameTimezone = userOffset === -totalOffsetMinutes
-
-  if (isSameTimezone) {
-    // 时区一致：直接显示时间
-    return date.toLocaleString('zh-CN')
-  } else {
-    // 时区不同：显示时间并标注照片时区
-    const timezoneLabel = `UTC${timezoneOffset}`
-    return `${date.toLocaleString('zh-CN')} (${timezoneLabel})`
-  }
-}
-
-// 格式化文件大小
-const formatFileSize = (bytes: number) => {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
-}
-
-const formatDuration = (seconds: number) => {
-  if (!seconds) return ''
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.floor(seconds % 60)
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
-}
-
-// 格式化快门速度（如 "1/125" 显示为 "1/125s"）
-const formatExposureTime = (exposureTime: string) => {
-  if (!exposureTime) return ''
-  // 如果是分数形式如 "1/125.5"，精确到小数点后3位
-  if (exposureTime.startsWith('1/')) {
-    const denominator = parseFloat(exposureTime.substring(2))
-    if (!isNaN(denominator)) {
-      return `1/${denominator.toFixed(3)}s`
-    }
-  }
-  return `${exposureTime}s`
-}
 
 // 导航操作
 const prev = () => {
@@ -319,22 +263,12 @@ const toggleInfo = () => {
   showDetailInfo.value = !showDetailInfo.value
 }
 
-const downloadOriginal = async () => {
+const downloadMedia = async () => {
   if (!currentFile.value) return
 
   try {
     const response = await fileApi.getOriginalFile(currentFile.value.id)
-    const blob = new Blob([response.data])
-    const url = URL.createObjectURL(blob)
-    
-    const link = document.createElement('a')
-    link.href = url
-    link.download = currentFile.value.fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    
-    URL.revokeObjectURL(url)
+    downloadFile(response.data, currentFile.value.fileName)
   } catch (error) {
     console.error('下载文件失败:', error)
     alert('下载文件失败，请稍后重试')
@@ -467,34 +401,15 @@ const onVideoError = (e: Event) => {
 }
 
 const onVideoPlay = () => {
-  console.log('视频开始播放')
+  // Video playback started - can be used for analytics or UI state
 }
 
 const onVideoPause = () => {
-  console.log('视频暂停')
+  // Video playback paused - can be used for analytics or UI state
 }
 
 const onVideoTimeUpdate = () => {
   // 可以在这里更新播放进度
-}
-
-const downloadVideo = async () => {
-  if (!currentFile.value) return
-  
-  try {
-    const response = await fileApi.getOriginalFile(currentFile.value.id)
-    const blob = new Blob([response.data])
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = currentFile.value.fileName
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  } catch (error) {
-    console.error('下载视频失败:', error)
-  }
 }
 
 // 监听 neighbors 变化，更新当前索引
@@ -554,9 +469,15 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 
-// 清理窗口大小变化监听
+// 清理窗口大小变化监听和键盘事件监听
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  document.removeEventListener('keydown', handleKeydown)
+  // 释放 ObjectURL 防止内存泄漏
+  if (currentImageUrl.value) {
+    URL.revokeObjectURL(currentImageUrl.value)
+    currentImageUrl.value = undefined
+  }
 })
 
 // 添加键盘事件监听

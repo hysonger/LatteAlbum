@@ -2,9 +2,91 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Quick Start](#quick-start)
+- [Build Commands](#build-commands)
+- [Environment Variables](#environment-variables)
+- [Architecture](#architecture)
+- [API Endpoints](#api-endpoints)
+- [Database](#database)
+- [Testing](#testing)
+- [CI/CD](#cicd)
+- [Dependencies](#dependencies)
+- [Feature Flags](#feature-flags)
+- [Key Design Patterns](#key-design-patterns)
+- [Project Rules](#project-rules)
+- [Common Tasks](#common-tasks)
+- [Guidelines](#guidelines)
+- [Known Issues](#known-issues)
+
 ## Project Overview
 
-Latte Album is a personal photo album application for NAS deployment, rewritten from Java to Rust. The backend is now built with Rust (Axum, SQLx, SQLite) while the frontend remains Vue 3 + TypeScript + Element Plus.
+Latte Album is a personal photo album application for NAS deployment, rewritten from Java to Rust. The backend is built with Rust (Axum, SQLx, SQLite) while the frontend uses Vue 3 + TypeScript + Element Plus.
+
+**Version**: 0.1.0
+
+**License**: MIT
+
+### Key Features
+
+- Responsive masonry gallery layout with dual-level lazy loading
+- Support for images (JPEG, PNG, GIF, WebP, TIFF, HEIC/HEIF) and videos (MP4, AVI, MOV, MKV, etc.)
+- High-performance parallel file scanning with modification time comparison
+- Real-time scan progress via WebSocket
+- EXIF metadata extraction (camera info, lens, aperture, ISO, etc.)
+- Three-tier thumbnail caching (memory, disk, dynamic generation)
+- Scheduled automatic scanning (daily at 2 AM)
+- Video thumbnail generation via FFmpeg
+
+### Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Backend | Axum 0.8, Rust, Tokio, SQLx, SQLite |
+| Frontend | Vue 3, TypeScript, Pinia, Element Plus |
+| Image Processing | image crate, libheif-rs |
+| Video Processing | FFmpeg (ffmpeg-next) |
+| EXIF | kamadak-exif (custom fork) |
+| Cache | Moka (memory) + disk cache |
+| Communication | REST API + WebSocket |
+
+## Quick Start
+
+### Prerequisites
+
+- Rust 1.75+
+- Node.js 18+
+- libheif (for HEIF format support)
+- FFmpeg (optional, for video thumbnails)
+
+### Development
+
+```bash
+# Backend (in rust/ directory)
+./cargo-with-vendor.sh run
+
+# Frontend (in frontend/ directory, separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+### Production Build
+
+```bash
+# Build backend
+cd rust
+./cargo-with-vendor.sh build --release
+
+# Build frontend
+cd frontend
+npm run build
+
+# Package everything
+./package.sh
+```
 
 ## Build Commands
 
@@ -139,38 +221,46 @@ Configure backend via environment variables:
 ### Backend Structure (Rust)
 
 ```
-rust/src/
-├── main.rs              # Application entry point
-├── lib.rs               # Module exports
-├── app.rs               # App struct and router configuration
-├── config.rs            # Configuration loading from env vars
-├── api/                 # REST API handlers
-│   ├── files.rs         # File operations, thumbnails, neighbors
-│   ├── directories.rs   # Directory tree
-│   └── system.rs        # Rescan, status, progress
-├── db/                  # Database layer
-│   ├── pool.rs          # sqlx connection pool
-│   ├── models.rs        # MediaFile, Directory, DateInfo
-│   └── repository.rs    # Data access layer
-├── services/            # Business logic
-│   ├── scan_service.rs  # File scanning and metadata extraction
-│   ├── file_service.rs  # File serving and thumbnail generation
-│   ├── cache_service.rs # Moka-based cache management
-│   ├── scheduler.rs     # tokio-cron-scheduler for scheduled scans
-│   └── transcoding_pool.rs # Rayon-based CPU-intensive image processing pool
-├── processors/          # Media format handlers (plugin architecture)
-│   ├── processor_trait.rs  # MediaProcessor trait
-│   ├── image_processor.rs  # JPEG/PNG/GIF/WebP/TIFF
-│   ├── heif_processor.rs   # HEIC/HEIF support via libheif-rs
-│   ├── video_processor.rs  # Video thumbnails via FFmpeg
-│   └── file_metadata.rs    # Unified file metadata extraction
-├── extraction/          # Metadata utilities
-│   └── time.rs          # EXIF timestamp extraction
-├── websocket/           # WebSocket handlers for scan progress
-│   ├── broadcast.rs     # ScanProgressBroadcaster for WebSocket broadcasting
-│   ├── handler.rs       # WebSocket connection handler
-│   └── scan_state.rs    # ScanStateManager - global scan state management
-└── utils/               # Helper functions
+rust/
+├── Cargo.toml            # Rust package manifest
+├── cargo-with-vendor.sh # Build script with vendored libheif
+├── vendor/
+│   └── libheif/         # Vendored libheif source (git submodule)
+└── src/
+    ├── main.rs              # Application entry point
+    ├── lib.rs               # Module exports
+    ├── app.rs               # App struct and router configuration
+    ├── config.rs            # Configuration loading from env vars
+    ├── api/                 # REST API handlers
+    │   ├── files.rs         # File operations, thumbnails, neighbors
+    │   ├── directories.rs   # Directory tree
+    │   └── system.rs        # Rescan, status, progress
+    ├── db/                  # Database layer
+    │   ├── pool.rs          # sqlx connection pool
+    │   ├── models.rs        # MediaFile, Directory, DateInfo
+    │   ├── repository.rs    # Data access layer
+    │   └── migrations/      # SQL migrations
+    ├── services/            # Business logic
+    │   ├── scan_service.rs  # File scanning and metadata extraction
+    │   ├── file_service.rs  # File serving and thumbnail generation
+    │   ├── cache_service.rs # Moka-based cache management
+    │   ├── scheduler.rs     # tokio-cron-scheduler for scheduled scans
+    │   └── transcoding_pool.rs # Rayon-based CPU-intensive image processing pool
+    ├── processors/          # Media format handlers (plugin architecture)
+    │   ├── processor_trait.rs  # MediaProcessor trait
+    │   ├── image_processor.rs  # JPEG/PNG/GIF/WebP/TIFF
+    │   ├── heif_processor.rs   # HEIC/HEIF support via libheif-rs
+    │   ├── video_processor.rs  # Video thumbnails via FFmpeg
+    │   └── file_metadata.rs    # Unified file metadata extraction
+    ├── extraction/          # Metadata utilities
+    │   └── time.rs          # EXIF timestamp extraction
+    ├── websocket/           # WebSocket handlers for scan progress
+    │   ├── broadcast.rs     # ScanProgressBroadcaster for WebSocket broadcasting
+    │   ├── handler.rs       # WebSocket connection handler
+    │   └── scan_state.rs    # ScanStateManager - global scan state management
+    ├── helpers/             # Helper functions
+    ├── fixtures/            # Test fixtures
+    └── utils/               # Utility functions
 ```
 
 ### Key Services
@@ -274,23 +364,37 @@ Three-tier caching strategy:
 ### Frontend Structure
 
 ```
-frontend/src/
-├── views/
-│   └── HomeView.vue     # Main page with Gallery + PhotoViewer
-├── components/
-│   ├── Gallery.vue      # Masonry layout gallery with lazy loading
-│   ├── PhotoViewer.vue  # Fullscreen viewer
-│   ├── MediaCard.vue    # Thumbnail card with Intersection Observer
-│   └── DateNavigator.vue # Calendar date picker
-├── composables/
-│   └── useScreenSize.ts # Screen size responsive detection
-├── stores/
-│   └── gallery.ts       # Pinia store for gallery state
-├── services/
-│   ├── api.ts           # Axios API client
-│   └── websocket.ts     # WebSocket handler
-└── types/
-    └── index.ts         # TypeScript interfaces
+frontend/
+├── package.json         # NPM dependencies
+├── vite.config.ts       # Vite configuration
+├── tsconfig.json        # TypeScript configuration
+├── index.html           # Entry HTML
+└── src/
+    ├── main.ts             # Application entry point
+    ├── App.vue             # Root component
+    ├── router/
+    │   └── index.ts        # Vue Router configuration
+    ├── views/
+    │   └── HomeView.vue    # Main page with Gallery + PhotoViewer
+    ├── components/
+    │   ├── Gallery.vue         # Masonry layout gallery with lazy loading
+    │   ├── PhotoViewer.vue     # Fullscreen viewer with metadata
+    │   ├── MediaCard.vue       # Thumbnail card with Intersection Observer
+    │   ├── DateNavigator.vue   # Calendar date picker
+    │   ├── FilterControls.vue  # File type/date filtering
+    │   ├── SortControls.vue    # Sorting options
+    │   ├── RefreshButton.vue   # Manual rescan trigger
+    │   ├── ScanProgressPopup.vue # Scan progress display
+    │   └── MobileMenu.vue      # Mobile navigation
+    ├── composables/
+    │   └── useScreenSize.ts    # Screen size responsive detection
+    ├── stores/
+    │   └── gallery.ts          # Pinia store for gallery state
+    ├── services/
+    │   ├── api.ts              # Axios API client
+    │   └── websocket.ts        # WebSocket handler for scan progress
+    └── types/
+        └── index.ts            # TypeScript interfaces
 ```
 
 ### useScreenSize Composable
@@ -330,7 +434,90 @@ Each gallery column has a sentinel element observed by `IntersectionObserver`:
 | `large` | Height 900px | High-quality preview |
 | `full` | 0 (original) | Full-size transcoded output (no resizing) |
 
-## File Scanning
+## Testing
+
+### Running Tests
+
+```bash
+# Backend tests (Rust)
+cd rust
+./cargo-with-vendor.sh test --features "vendor-build,video-processing"
+
+# With system libheif (if available)
+cargo test
+
+# Frontend - unit tests are limited, primarily manual testing
+cd frontend
+npm run build  # Type checking
+```
+
+### Test Structure
+
+Tests are co-located with source files using Rust's module system:
+
+```
+rust/src/
+├── services/
+│   ├── scan_service.rs     # Tests via #[cfg(test)] module
+│   └── file_service.rs     # Tests via #[cfg(test)] module
+├── processors/
+│   ├── image_processor.rs  # Tests via #[cfg(test)] module
+│   └── heif_processor.rs  # Tests via #[cfg(test)] module
+└── db/
+    └── repository.rs        # Tests via #[cfg(test)] module
+```
+
+### Test Fixtures
+
+Test fixtures are defined in `rust/src/fixtures/mod.rs` and provide:
+- Sample media files for different formats
+- Mock database setup utilities
+- Temporary directory management
+
+### Running Specific Tests
+
+```bash
+# Run tests matching a pattern
+cargo test scan_service
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run doc tests
+cargo test --doc
+```
+
+## CI/CD
+
+### GitHub Actions Workflow
+
+The project uses GitHub Actions for CI (`.github/workflows/ci.yml`):
+
+**Triggers**:
+- Push to `main` branch
+- Pull requests to `main` branch
+
+**Jobs**:
+1. **Build**: Ubuntu latest
+2. **Frontend**: Install dependencies, build (type-checked)
+3. **Backend**: Build with vendor libheif and run tests
+
+**CI Command**:
+```bash
+cd rust
+./cargo-with-vendor.sh test --features "vendor-build,video-processing"
+```
+
+### Local CI Validation
+
+To validate changes locally before pushing:
+```bash
+# Full build and test
+cd rust && ./cargo-with-vendor.sh test --features "vendor-build,video-processing"
+cd frontend && npm install && npm run build
+```
+
+## Database
 
 ### Scan Flow Overview
 
@@ -474,18 +661,39 @@ Phase labels in Chinese:
 
 ## Dependencies
 
-| Layer | Technology |
-|-------|------------|
-| Web | Axum 0.8, Tower HTTP, Tokio |
-| Database | SQLx 0.8 with SQLite |
-| Image | image crate 0.25, libheif-rs 2.5 |
-| Video | ffmpeg-next (optional) |
-| Cache | Moka 0.12 |
-| Streaming | bytes 1, tokio-util 0.7 |
-| Scheduling | tokio-cron-scheduler |
-| EXIF | kamadak-exif |
-| Thread Pool | rayon 1.10 (CPU-intensive image processing) |
-| Date/Time | chrono |
+### Rust Backend
+
+| Category | Crate | Version |
+|----------|-------|---------|
+| Web Framework | axum | 0.8 |
+| Async Runtime | tokio | 1 |
+| HTTP | tower, tower-http | 0.5, 0.6 |
+| Database | sqlx | 0.8 |
+| Image Processing | image | 0.25 |
+| HEIC/HEIF | libheif-rs | 2.6.1 |
+| Video | ffmpeg-next | 7 (optional) |
+| Caching | moka | 0.12 |
+| Serialization | serde, serde_json | 1 |
+| Date/Time | chrono | 0.4 |
+| Scheduling | tokio-cron-scheduler | 0.12 |
+| EXIF | kamadak-exif (custom fork) | git rev |
+| Thread Pool | rayon | 1.11 |
+| Logging | tracing, tracing-subscriber | 0.1, 0.3 |
+| WebSocket | tokio-tungstenite | 0.28 |
+| Utilities | bytes, futures, tokio-util | various |
+
+### Frontend
+
+| Category | Package | Version |
+|----------|---------|---------|
+| Framework | vue | 3.x |
+| State Management | pinia | 2.x |
+| UI Components | element-plus | 2.x |
+| Build Tool | vite | 5.x |
+| HTTP Client | axios | 1.x |
+| Icons | @fortawesome/fontawesome-free | 6.x |
+| Date Handling | dayjs | 1.x |
+| TypeScript | typescript | 5.x |
 
 ## Feature Flags
 
@@ -502,13 +710,6 @@ Shared application state passed via Axum's `State` extractor. Contains all servi
 ### Async Trait Pattern
 Media processors use `async-trait` crate to enable async methods in trait objects.
 
-## Database
-
-SQLite with sqlx. Migrations in `src/db/migrations/` applied automatically. Key models:
-- `MediaFile`: Photo/video file metadata
-- `Directory`: Folder information
-- `DateInfo`: Date grouping for timeline
-
 ## Project Rules
 
 1. **Code Structure**: Keep simple and clear. Avoid over-abstraction.
@@ -522,16 +723,35 @@ SQLite with sqlx. Migrations in `src/db/migrations/` applied automatically. Key 
 ## Common Tasks
 
 ### Add new file format support
-1. Create processor implementing `MediaProcessor` trait
+1. Create processor implementing `MediaProcessor` trait in `rust/src/processors/`
 2. Define supported extensions in `supports()`
-3. Set appropriate `priority()`
-4. Register in `app.rs`
+3. Set appropriate `priority()` (higher = first)
+4. Register in `app.rs` via `ProcessorRegistry`
 
 ### Add new EXIF field
 1. Add field to `MediaMetadata` in `processor_trait.rs`
 2. Extract in processor's `process()` method
-3. Add to TypeScript interface
-4. Update frontend display
+3. Add to TypeScript interface in `frontend/src/types/index.ts`
+4. Update frontend display in `PhotoViewer.vue`
+
+### Add new API endpoint
+1. Define request/response types in appropriate module
+2. Add handler function in `rust/src/api/`
+3. Register route in `app.rs`
+4. Add TypeScript client function in `frontend/src/services/api.ts`
+5. Add frontend component if needed
+
+### Modify thumbnail generation
+1. Check `rust/src/services/file_service.rs` for thumbnail logic
+2. Check `rust/src/utils/thumbnail.rs` for scaling utilities
+3. Adjust sizes in environment variables if needed
+4. Clear cache if testing: `rm -rf ./cache/`
+
+### Modify scan behavior
+1. Check `rust/src/services/scan_service.rs` for scan logic
+2. Check `rust/src/websocket/scan_state.rs` for progress tracking
+3. Adjust batch sizes in environment variables
+4. Test with small photo set first
 
 ### DateNavigator Component Logic
 

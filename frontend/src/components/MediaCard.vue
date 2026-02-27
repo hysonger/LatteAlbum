@@ -21,8 +21,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { fileApi } from '@/services/api'
+import { formatDuration } from '@/utils/format'
 import type { MediaFile } from '@/types'
 
 const props = defineProps<{
@@ -61,14 +62,22 @@ const onImageLoad = () => {
 }
 
 const onImageError = () => {
+  // 显示错误占位符
+  console.error('加载缩略图失败:', props.item.id)
 }
 
-const formatDuration = (seconds: number) => {
-  if (!seconds) return ''
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.floor(seconds % 60)
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+const revokeThumbnailUrl = () => {
+  if (thumbnailUrl.value) {
+    URL.revokeObjectURL(thumbnailUrl.value)
+    thumbnailUrl.value = null
+  }
 }
+
+// 监听 item 变化时释放旧的 ObjectURL
+watch(() => props.item.id, () => {
+  revokeThumbnailUrl()
+  isLoaded.value = false
+})
 
 onMounted(() => {
   // 使用 Intersection Observer 实现懒加载
@@ -95,6 +104,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   observer.value?.disconnect()
+  revokeThumbnailUrl()
 })
 </script>
 

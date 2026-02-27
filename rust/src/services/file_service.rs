@@ -175,54 +175,40 @@ impl FileService {
     }
 }
 
-/// Guess MIME type from file extension
-fn guess_mime_type(file_name: &str) -> String {
-    let ext = file_name
+/// Get file extension from file name
+fn get_file_extension(file_name: &str) -> String {
+    file_name
         .rsplit('.')
         .next()
         .map(|s| s.to_lowercase())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
-    match ext.as_str() {
-        "jpg" | "jpeg" => "image/jpeg".to_string(),
-        "png" => "image/png".to_string(),
-        "gif" => "image/gif".to_string(),
-        "webp" => "image/webp".to_string(),
-        "heic" | "heif" => "image/heic".to_string(),
-        "mp4" => "video/mp4".to_string(),
-        "mov" => "video/quicktime".to_string(),
-        "avi" => "video/x-msvideo".to_string(),
-        "mkv" => "video/x-matroska".to_string(),
-        _ => "application/octet-stream".to_string(),
-    }
+/// Guess MIME type from file extension
+/// This function consolidates MIME type detection for both images and videos
+fn guess_mime_type(file_name: &str) -> String {
+    get_mime_type_from_extension(&get_file_extension(file_name))
 }
 
 /// Check if a file format is natively supported by browsers (can be served directly without transcoding)
 /// Browser-native formats: JPEG, PNG, GIF, WebP, AVIF, SVG
 /// Formats that need transcoding: HEIC/HEIF, TIFF, BMP
 fn is_browser_native_format(file_name: &str) -> bool {
-    file_name
-        .rsplit('.')
-        .next()
-        .map(|s| {
-            let ext = s.to_lowercase();
-            matches!(
-                ext.as_str(),
-                "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "svg"
-            )
-        })
-        .unwrap_or(false)
+    let ext = get_file_extension(file_name);
+    matches!(
+        ext.as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "svg"
+    )
 }
 
 /// Guess MIME type from file path or ID (used for cache lookup)
 fn guess_mime_type_from_path(file_name: &str) -> String {
-    let ext = file_name
-        .rsplit('.')
-        .next()
-        .map(|s| s.to_lowercase())
-        .unwrap_or_default();
+    get_mime_type_from_extension(&get_file_extension(file_name))
+}
 
-    match ext.as_str() {
+/// Unified MIME type lookup from file extension
+fn get_mime_type_from_extension(ext: &str) -> String {
+    match ext {
         "jpg" | "jpeg" => "image/jpeg".to_string(),
         "png" => "image/png".to_string(),
         "gif" => "image/gif".to_string(),
@@ -232,6 +218,13 @@ fn guess_mime_type_from_path(file_name: &str) -> String {
         "heic" | "heif" => "image/heic".to_string(),
         "tiff" | "tif" => "image/tiff".to_string(),
         "bmp" => "image/bmp".to_string(),
+        "mp4" => "video/mp4".to_string(),
+        "mov" => "video/quicktime".to_string(),
+        "avi" => "video/x-msvideo".to_string(),
+        "mkv" => "video/x-matroska".to_string(),
+        "webm" => "video/webm".to_string(),
+        "wmv" => "video/x-ms-wmv".to_string(),
+        "flv" => "video/x-flv".to_string(),
         _ => "application/octet-stream".to_string(),
     }
 }
