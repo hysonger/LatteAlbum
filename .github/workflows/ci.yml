@@ -31,7 +31,7 @@ jobs:
           npm run build
 
       - name: Build Rust backend
-        run: cargo build
+        run: cd rust && cargo build
 
       - name: Run Rust tests
-        run: cargo test
+        run: cd rust && cargo test
