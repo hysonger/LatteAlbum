@@ -45,15 +45,12 @@ pub struct SystemStatus {
 
 #[debug_handler]
 pub async fn trigger_rescan(State(state): State<AppState>) -> impl IntoResponse {
-    // Start scan in blocking thread pool to avoid blocking API requests
+    // Start scan in background task to avoid blocking API requests
     let scan_service = state.scan_service.clone();
 
-    tokio::task::spawn_blocking(move || {
+    tokio::spawn(async move {
         tracing::info!("Triggering rescan");
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            scan_service.scan().await;
-        });
+        scan_service.scan().await;
     });
 
     Json(RescanResponse {

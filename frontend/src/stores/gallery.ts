@@ -47,7 +47,7 @@ export const useGalleryStore = defineStore('gallery', () => {
       
       // 预加载下一批图片
       if (hasMore.value) {
-        preloadNextPage()
+        loadNextPage()
       }
     } catch (error) {
       console.error('加载页面失败:', error)
@@ -55,12 +55,7 @@ export const useGalleryStore = defineStore('gallery', () => {
       isLoading.value = false
     }
   }
-  
-  function preloadNextPage() {
-    // 获取下一批图片的缩略图URL并预加载
-    // 这里可以实现预加载逻辑
-  }
-  
+
   async function loadNextPage() {
     if (!isLoading.value && hasMore.value) {
       await loadPage(currentPage.value + 1)
@@ -112,7 +107,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     loadNextPage,
     refresh,
     reset,
-    preloadNextPage,
     setDateResults,
     clearDateResults
   }

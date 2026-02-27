@@ -9,24 +9,11 @@ const apiClient = axios.create({
   timeout: 30000
 })
 
-// 添加请求拦截器
-apiClient.interceptors.request.use(
-  (config) => {
-    return config
-  },
-  (error) => {
-    console.error('请求错误:', error)
-    return Promise.reject(error)
-  }
-)
-
-// 添加响应拦截器
+// 添加响应拦截器用于统一错误处理
 apiClient.interceptors.response.use(
-  (response) => {
-    return response
-  },
+  (response) => response,
   (error) => {
-    console.error('响应错误:', error.response?.status, error.response?.config?.url, error.message)
+    console.error('API Error:', error.response?.status, error.response?.config?.url, error.message)
     return Promise.reject(error)
   }
 )

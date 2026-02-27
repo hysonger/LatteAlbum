@@ -33,18 +33,7 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import MediaCard from './MediaCard.vue'
 import type { MediaFile } from '@/types'
 import { useScreenSize } from '@/composables/useScreenSize'
-
-// 防抖函数
-const debounce = <T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): ((...args: Parameters<T>) => void) => {
-  let timeout: ReturnType<typeof setTimeout> | null = null
-  return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout)
-    timeout = setTimeout(() => func(...args), wait)
-  }
-}
+import { debounce } from '@/utils/format'
 
 interface Props {
   items: MediaFile[]
