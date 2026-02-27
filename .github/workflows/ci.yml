@@ -24,14 +24,10 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install FFmpeg and libheif
+      - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavfilter-dev libavdevice-dev libpostproc-dev libswresample-dev
-          # Try to install libheif from source (version may be too old)
-          sudo apt-get install -y libheif-dev || true
-          # Check if we have a new enough version
-          pkg-config --modversion libheif || echo "libheif too old, will try without video-processing"
 
       - name: Install frontend dependencies and build
         run: |
@@ -39,5 +35,9 @@ jobs:
           npm install
           npm run build
 
-      - name: Build Rust backend
-        run: cd rust && cargo build --release --no-default-features
+      - name: Build and test Rust backend
+        run: |
+          cd rust
+          # Use cargo-with-vendor.sh to build with video-processing feature
+          # and run tests
+          ./cargo-with-vendor.sh test --features "vendor-build,video-processing"
