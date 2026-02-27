@@ -6,7 +6,7 @@ description = "A personal photo album application for NAS deployment"
 authors = ["Latte Album"]
 
 [features]
-default = []
+default = ["video-processing"]
 video-processing = ["ffmpeg-next"]
 # Build from project's vendor directory instead of using system libraries
 vendor-build = ["dep:cmake"]
