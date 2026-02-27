@@ -49,7 +49,7 @@ npm install
 npm run dev     # 开发服务器（端口 3000）
 npm run build   # 生产构建
 
-# 打包
+# 打包前后端到一起，这样可通过单一地址统一使用前后端，适合生产环境
 ./package.sh
 ```
 
