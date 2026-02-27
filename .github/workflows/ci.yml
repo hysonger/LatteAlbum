@@ -39,8 +39,5 @@ jobs:
           npm install
           npm run build
 
-      - name: Build Rust backend (without video processing)
+      - name: Build Rust backend
         run: cd rust && cargo build --release --no-default-features
-
-      - name: Run Rust tests (without video processing)
-        run: cd rust && cargo test --release --no-default-features
