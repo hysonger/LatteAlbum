@@ -316,9 +316,11 @@ main() {
     echo "========================================"
     echo ""
     
-    # Clear cache unless skipped
-    if [ "$skip_cache" = false ]; then
+    # Clear cache unless skipped (always skip in test-only mode to preserve data)
+    if [ "$skip_cache" = false ] && [ "$test_only" = false ]; then
         clear_cache
+    elif [ "$skip_cache" = false ]; then
+        log_info "Test-only mode - skipping cache clear to preserve data"
     else
         log_info "Skipping cache clear"
     fi

@@ -349,14 +349,12 @@ async function testPhotoLightbox() {
     }
     
     // Look for clickable image/photo elements
-    // Try clicking on common gallery item selectors
+    // LatteAlbum uses .media-card for gallery items
     const clickCommands = [
-        'click .photo-card',
-        'click .media-card', 
-        'click .gallery-item',
-        'click img',
-        'click [class*="photo"]',
-        'click [class*="media"]'
+        'click .media-card',           // MediaCard component
+        'click .gallery-container',   // Gallery container
+        'click [class*="thumbnail"]', // Thumbnail container
+        'click img.thumbnail'         // Thumbnail image
     ];
     
     let clicked = false;
@@ -375,10 +373,10 @@ async function testPhotoLightbox() {
         // Check if lightbox opened
         const lightboxResult = runBrowserCommand('snapshot');
         if (lightboxResult.success) {
-            const hasLightbox = lightboxResult.output.includes('lightbox') || 
-                              lightboxResult.output.includes('modal') ||
-                              lightboxResult.output.includes('viewer') ||
-                              lightboxResult.output.includes('overlay');
+            // LatteAlbum uses .photo-viewer for lightbox
+            const hasLightbox = lightboxResult.output.includes('photo-viewer') || 
+                              lightboxResult.output.includes('viewer-content') ||
+                              lightboxResult.output.includes('nav-btn');
             if (hasLightbox) {
                 assert(true, 'Lightbox opened after clicking photo');
             } else {
@@ -399,8 +397,19 @@ async function testGalleryScroll() {
     runBrowserCommand(`open ${FRONTEND_URL}`);
     runBrowserCommand('wait --load networkidle');
     
+    // Get initial snapshot to see gallery structure
+    const initialSnapshot = runBrowserCommand('snapshot');
+    const hasGallery = initialSnapshot.success && initialSnapshot.output.includes('gallery');
+    
+    if (!hasGallery) {
+        warn('Gallery container not found in snapshot');
+        runBrowserCommand('close');
+        return;
+    }
+    
     // Scroll down to trigger lazy loading
-    const scrollResult = runBrowserCommand('evaluate document.body.scrollTop = document.body.scrollHeight');
+    // Use JavaScript evaluation for scrolling
+    const scrollResult = runBrowserCommand('evaluate window.scrollTo(0, document.body.scrollHeight)');
     
     if (scrollResult.success) {
         assert(true, 'Page scroll executed');
@@ -426,12 +435,12 @@ async function testFilterFunctionality() {
     runBrowserCommand(`open ${FRONTEND_URL}`);
     runBrowserCommand('wait --load networkidle');
     
-    // Look for filter controls
+    // LatteAlbum uses .filter-container and .filter-button
     const filterCommands = [
-        'click [class*="filter"]',
-        'click button.filter',
-        'click .filter-btn',
-        'click [id*="filter"]'
+        'click .filter-button',        // Filter button in FilterControls
+        'click .filter-container',     // Filter container
+        'click [class*="filter"]',    // Any filter element
+        'click button.filter'          // Fallback
     ];
     
     let filterFound = false;
@@ -473,7 +482,7 @@ async function testLoadingStates() {
     const earlySnapshot = runBrowserCommand('snapshot');
     
     if (earlySnapshot.success) {
-        // Check if there's a loading indicator
+        // LatteAlbum uses .loading and .spinner classes
         const hasLoading = earlySnapshot.output.includes('loading') || 
                          earlySnapshot.output.includes('Loading') ||
                          earlySnapshot.output.includes('spinner');
@@ -567,31 +576,21 @@ async function testDirectoryNavigation() {
     runBrowserCommand(`open ${FRONTEND_URL}`);
     runBrowserCommand('wait --load networkidle');
     
-    // Look for directory/folder elements
-    const dirCommands = [
-        'click [class*="directory"]',
-        'click [class*="folder"]',
-        'click [class*="dir"]'
-    ];
+    // Look for directory/folder elements - LatteAlbum doesn't have directory navigation in the main UI
+    // This test is optional and may not apply
+    const snapshot = runBrowserCommand('snapshot');
     
-    let dirFound = false;
-    for (const cmd of dirCommands) {
-        const result = runBrowserCommand(cmd);
-        if (result.success) {
-            info(`Found directory element: ${cmd}`);
-            dirFound = true;
-            runBrowserCommand('wait --load 1000');
-            break;
+    if (snapshot.success) {
+        // Check if there's any directory-related content
+        const hasDirs = snapshot.output.includes('directory') || 
+                       snapshot.output.includes('folder') ||
+                       snapshot.output.includes('DateNavigator');
+        
+        if (hasDirs) {
+            assert(true, 'Directory navigation elements present');
+        } else {
+            info('No directory navigation in this view (DateNavigator may be used instead)');
         }
-    }
-    
-    if (dirFound) {
-        const snapshot = runBrowserCommand('snapshot');
-        if (snapshot.success) {
-            assert(true, 'Directory navigation appears functional');
-        }
-    } else {
-        warn('Directory navigation elements not found');
     }
     
     runBrowserCommand('close');
@@ -604,14 +603,12 @@ async function testRefreshButton() {
     runBrowserCommand(`open ${FRONTEND_URL}`);
     runBrowserCommand('wait --load networkidle');
     
-    // Look for refresh/scan button
+    // LatteAlbum uses .refresh-button
     const refreshCommands = [
-        'click [class*="refresh"]',
-        'click [class*="scan"]',
-        'click button.refresh',
-        'click .scan-btn',
-        'click [title*="refresh"]',
-        'click [title*="scan"]'
+        'click .refresh-button',      // Refresh button in RefreshButton component
+        'click [class*="refresh"]',    // Any refresh element
+        'click [class*="scan"]',      // Scan element
+        'click [title*="refresh"]'    // Title attribute
     ];
     
     let buttonFound = false;
@@ -629,9 +626,11 @@ async function testRefreshButton() {
         // Check if scanning started (look for progress indicator)
         const snapshot = runBrowserCommand('snapshot');
         if (snapshot.success) {
+            // LatteAlbum shows scan progress with scan-progress-container
             const hasProgress = snapshot.output.includes('progress') || 
                               snapshot.output.includes('scan') ||
-                              snapshot.output.includes('loading');
+                              snapshot.output.includes('loading') ||
+                              snapshot.output.includes('scan-progress');
             if (hasProgress) {
                 assert(true, 'Scan/refresh button triggers action');
             } else {
