@@ -10,6 +10,7 @@
         :key="item.id"
         :item="item"
         :thumbnail-size="thumbnailSize"
+        :column-width="columnWidth"
         @click="handleClick(item)"
       />
       <!-- 列底部哨兵，用于触发加载更多 -->
