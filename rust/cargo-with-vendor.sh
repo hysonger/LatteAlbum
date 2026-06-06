@@ -1,11 +1,27 @@
 #!/bin/bash
 
-# Script to build libheif from vendor and then execute cargo commands
-# Usage: ./cargo-with-vendor.sh <cargo-command> [additional cargo flags]
-# Example: ./cargo-with-vendor.sh build
-#          ./cargo-with-vendor.sh run
-#          ./cargo-with-vendor.sh test
-#          ./cargo-with-vendor.sh check --release
+# Script to build libheif from vendor and then execute cargo commands.
+#
+# When to use this script:
+#   Use this script when your system does not have libheif installed, or the
+#   installed version is incompatible. It builds libheif from the vendored
+#   source in rust/vendor/ (a git submodule) and links against it statically.
+#
+#   If your system already has libheif (e.g. via Homebrew or apt), you can run
+#   cargo commands directly without this script.
+#
+# Prerequisites:
+#   - The vendor submodule must be initialized: git submodule update --init
+#   - cmake must be installed
+#
+# Usage:
+#   ./cargo-with-vendor.sh <cargo-command> [additional cargo flags]
+#
+# Examples:
+#   ./cargo-with-vendor.sh build
+#   ./cargo-with-vendor.sh run
+#   ./cargo-with-vendor.sh test
+#   ./cargo-with-vendor.sh check --release
 
 set -e
 
@@ -14,6 +30,17 @@ RUST_DIR=$(dirname "$(realpath "$0")")
 VENDOR_DIR="$RUST_DIR/vendor"
 BUILD_DIR="$RUST_DIR/target/vendor-build"
 INSTALL_DIR="$BUILD_DIR/install"
+
+# Verify vendor submodule is populated
+if [ ! -f "$VENDOR_DIR/libheif/CMakeLists.txt" ]; then
+    echo "Error: vendor/libheif/CMakeLists.txt not found."
+    echo ""
+    echo "The vendor submodule is not initialized. Either:"
+    echo "  1. Initialize it:  git submodule update --init"
+    echo "  2. Use system libheif instead: run cargo commands directly"
+    echo "     e.g. cargo build, cargo test, etc."
+    exit 1
+fi
 
 # Create build directories
 mkdir -p "$BUILD_DIR"

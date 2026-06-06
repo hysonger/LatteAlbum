@@ -8,58 +8,13 @@ use axum::{
     debug_handler,
     extract::{Path, Query},
     http::HeaderMap,
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     Json,
 };
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tracing::warn;
 use tokio_util::io::ReaderStream;
-
-/// Build response headers for thumbnail with caching headers
-fn build_thumbnail_headers(size_label: &str, content_length: u64) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    let etag = format!("\"{}-{}\"", size_label, size_label);
-
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("image/jpeg"),
-    );
-    headers.insert(
-        axum::http::header::CONTENT_LENGTH,
-        content_length.to_string().parse().unwrap(),
-    );
-    headers.insert(
-        axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("public, max-age=86400"),
-    );
-    headers.insert(
-        axum::http::header::ETAG,
-        etag.parse().unwrap(),
-    );
-    headers
-}
-
-/// Build response headers for thumbnail from memory cache
-fn build_memory_cache_response(data: &Bytes, size_label: &str) -> Response<Body> {
-    let etag = format!("\"{}-{}\"", size_label, size_label);
-
-    let mut response = Response::new(Body::from(data.clone()));
-    response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("image/jpeg"),
-    );
-    response.headers_mut().insert(
-        axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("public, max-age=86400"),
-    );
-    response.headers_mut().insert(
-        axum::http::header::ETAG,
-        etag.parse().unwrap(),
-    );
-    response
-}
 
 /// Query parameters for file list
 #[derive(Debug, Deserialize)]
