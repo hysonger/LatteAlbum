@@ -7,6 +7,21 @@ The user tend to read Chinese text. ALWAYS output contents for human read in Chi
 
 Latte Album is a personal photo album application for NAS deployment. Backend: Rust (Axum, SQLx, SQLite). Frontend: Vue 3 + TypeScript + Element Plus.
 
+## File Structure
+
+- rust/ - Backend project
+- frontend/ - Frontend project
+
+### Documents
+
+There are multiple types of documents in this project:
+
+- docs/ - General documents (If not specified other paths, put the documents here in default. )
+- plans/ - Output plan documents in plan mode (mostly from Claude Code)
+- openspec/ - OpenSpec SDD workflow documents of changes and specs
+
+When finding and checking the documents, DO NOT miss any of these positions above.
+
 ## Quick Start
 
 ### Prerequisites
