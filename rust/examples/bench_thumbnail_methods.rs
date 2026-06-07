@@ -24,18 +24,6 @@ struct TimingResult {
     output_size: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct FilterBench {
-    name: &'static str,
-    filter: image::imageops::FilterType,
-}
-
-const FILTERS: &[FilterBench] = &[
-    FilterBench { name: "Lanczos3", filter: image::imageops::FilterType::Lanczos3 },
-    FilterBench { name: "Triangle", filter: image::imageops::FilterType::Triangle },
-    FilterBench { name: "Thumbnail", filter: image::imageops::FilterType::Triangle },
-];
-
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| {
         eprintln!("Usage: cargo run --example benchmark_thumbnail <jpg_path>");

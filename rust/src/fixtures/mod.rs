@@ -43,7 +43,7 @@ impl TestFixtures {
     pub fn copy_sample_image(&self, src: &str, dst: &str) -> PathBuf {
         let dst_path = self.test_photos_dir.join(dst);
         std::fs::copy(src, &dst_path)
-            .expect(&format!("Failed to copy test image from {} to {}", src, dst_path.display()));
+            .unwrap_or_else(|_| panic!("Failed to copy test image from {} to {}", src, dst_path.display()));
         dst_path
     }
 
@@ -51,7 +51,7 @@ impl TestFixtures {
     pub fn create_subdir(&self, name: &str) -> PathBuf {
         let subdir = self.test_photos_dir.join(name);
         std::fs::create_dir_all(&subdir)
-            .expect(&format!("Failed to create subdirectory: {}", name));
+            .unwrap_or_else(|_| panic!("Failed to create subdirectory: {}", name));
         subdir
     }
 }

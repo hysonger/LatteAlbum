@@ -74,8 +74,7 @@ fn main() {
     } else {
         println!("Found {} EXIF block(s)\n", count);
 
-        for i in 0..count {
-            let meta_id = meta_ids[i];
+        for (i, &meta_id) in meta_ids.iter().enumerate().take(count) {
             println!("[EXIF #{}] Item ID: {}", i, meta_id);
 
             // Get raw data

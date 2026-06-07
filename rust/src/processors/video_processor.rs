@@ -147,17 +147,19 @@ impl MediaProcessor for VideoProcessor {
         #[cfg(not(feature = "video-processing"))]
         {
             tracing::warn!("Video processing not enabled - cannot generate thumbnail for {}", path.display());
+            return Ok(None);
         }
-
-        Ok(None)
     }
 }
 
+/// 从视频文件提取的元数据：(宽, 高, 时长秒, 编码器名称)
+type VideoMetadata = (Option<i32>, Option<i32>, Option<f64>, Option<String>);
+
 #[cfg(feature = "video-processing")]
-fn extract_video_metadata(path: &Path) -> Result<(Option<i32>, Option<i32>, Option<f64>, Option<String>), ProcessingError> {
+fn extract_video_metadata(path: &Path) -> Result<VideoMetadata, ProcessingError> {
     use ffmpeg_next::format::input;
     use ffmpeg_next::codec::context::Context;
-    use ffmpeg_next::media::Type;
+    
 
     let input = input(path).map_err(|e| ProcessingError::ExternalTool(e.to_string()))?;
 
@@ -307,12 +309,12 @@ fn generate_video_thumbnail(
     // Decode packets until we get a frame
     for (stream_idx, packet) in ictx.packets() {
         if stream_idx.index() == video_index {
-            if let Err(e) = decoder.send_packet(&packet) {
+            if let Err(_e) = decoder.send_packet(&packet) {
                 continue;
             }
 
             let mut decoded = Video::empty();
-            while let Ok(_) = decoder.receive_frame(&mut decoded) {
+            while decoder.receive_frame(&mut decoded).is_ok() {
                 if scaler.run(&decoded, &mut rgb_frame).is_ok() {
                     frame_found = true;
                     break;
@@ -329,7 +331,7 @@ fn generate_video_thumbnail(
     if !frame_found {
         let _ = decoder.send_eof();
         let mut decoded = Video::empty();
-        while let Ok(_) = decoder.receive_frame(&mut decoded) {
+        while decoder.receive_frame(&mut decoded).is_ok() {
             if scaler.run(&decoded, &mut rgb_frame).is_ok() {
                 frame_found = true;
                 break;
@@ -343,8 +345,8 @@ fn generate_video_thumbnail(
     }
 
     // Get RGB data and handle stride padding
-    let width = rgb_frame.width() as u32;
-    let height = rgb_frame.height() as u32;
+    let width = rgb_frame.width();
+    let height = rgb_frame.height();
     let data = rgb_frame.data(0);
     let stride = rgb_frame.stride(0);
     let bytes_per_row = (width * 3) as usize;

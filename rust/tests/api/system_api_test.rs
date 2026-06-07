@@ -60,7 +60,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/system/status", addr))
+            .get(format!("http://{}/api/system/status", addr))
             .send()
             .await
             .unwrap();
@@ -82,7 +82,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .post(&format!("http://{}/api/system/rescan", addr))
+            .post(format!("http://{}/api/system/rescan", addr))
             .send()
             .await
             .unwrap();
@@ -99,7 +99,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/system/scan/progress", addr))
+            .get(format!("http://{}/api/system/scan/progress", addr))
             .send()
             .await
             .unwrap();
@@ -120,7 +120,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .post(&format!("http://{}/api/system/scan/cancel", addr))
+            .post(format!("http://{}/api/system/scan/cancel", addr))
             .send()
             .await
             .unwrap();

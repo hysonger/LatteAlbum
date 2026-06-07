@@ -50,7 +50,7 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage: {} <image_path>", args[0]);
         eprintln!("   or: {} <heic_path> <jpg_path>  (compare HEIF vs JPG)", args[0]);
-        eprintln!("");
+        eprintln!();
         eprintln!("Supports: HEIC, HEIF, AVIF, JPG, PNG, TIFF, WebP, etc.");
         std::process::exit(1);
     }

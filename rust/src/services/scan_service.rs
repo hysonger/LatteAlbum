@@ -144,7 +144,7 @@ impl ScanService {
             let mut files_to_process: Vec<PathBuf> = Vec::with_capacity(processing_count as usize);
             for path in &files {
                 let path_str = path.to_string_lossy().to_string();
-                if !skip_list.iter().any(|p| p.to_string_lossy().to_string() == path_str) {
+                if !skip_list.iter().any(|p| p.to_string_lossy() == path_str) {
                     files_to_process.push(path.clone());
                 }
             }
@@ -403,10 +403,8 @@ impl ScanService {
         // Wait for all tasks to complete
         let mut all_results = Vec::with_capacity(handles.len());
         for handle in handles {
-            match handle.await {
-                Ok(Some(result)) => all_results.push(result),
-                // Cancelled tasks or panics are ignored (not counted as failures)
-                _ => {}
+            if let Ok(Some(result)) = handle.await {
+                all_results.push(result);
             }
         }
 
@@ -471,7 +469,7 @@ impl ScanService {
         let file_metadata = tokio::task::spawn_blocking(move || {
             crate::processors::file_metadata::extract_file_metadata(&path_for_blocking)
         }).await
-        .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
 
         // Extract format-specific metadata (async, may contain internal blocking operations)
         let processor = processors.find_processor(&path_buf).ok_or_else(|| {

@@ -7,7 +7,9 @@ use crate::websocket::broadcast::ScanProgressMessage;
 /// 扫描阶段
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ScanPhase {
+    #[default]
     Idle,
     Collecting,
     Counting,
@@ -19,11 +21,6 @@ pub enum ScanPhase {
     Cancelled,
 }
 
-impl Default for ScanPhase {
-    fn default() -> Self {
-        ScanPhase::Idle
-    }
-}
 
 /// 扫描状态
 #[derive(Debug, Clone, Default)]
@@ -144,11 +141,7 @@ impl ScanStateManager {
 
                     if should_send {
                         // 对于完成/错误/取消状态，先保存要广播的 phase
-                        let broadcast_phase = if matches!(update, ProgressUpdate::Completed | ProgressUpdate::Error | ProgressUpdate::Cancelled) {
-                            current_state.phase.clone()
-                        } else {
-                            current_state.phase.clone()
-                        };
+                        let broadcast_phase = current_state.phase.clone();
 
                         let phase_str = format!("{:?}", broadcast_phase);
                         let scanning = current_state.scanning;
@@ -320,11 +313,13 @@ mod tests {
 
     #[test]
     fn test_scan_state_with_values() {
-        let mut state = ScanState::default();
-        state.phase = ScanPhase::Processing;
-        state.scanning = true;
-        state.total_files = 100;
-        state.success_count = 50;
+        let state = ScanState {
+            phase: ScanPhase::Processing,
+            scanning: true,
+            total_files: 100,
+            success_count: 50,
+            ..ScanState::default()
+        };
 
         assert_eq!(state.phase, ScanPhase::Processing);
         assert!(state.scanning);

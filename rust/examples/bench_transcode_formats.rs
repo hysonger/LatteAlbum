@@ -13,7 +13,6 @@ use image::{codecs::jpeg::JpegEncoder, ImageDecoder, ImageReader};
 use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 use std::path::Path;
 use std::time::{Duration, Instant};
-use webp;
 
 const TARGET_SIZES: &[u32] = &[300, 450, 900, 0]; // small, medium, large, full
 const RUNS: usize = 5;
@@ -22,7 +21,9 @@ const QUALITY: f32 = 0.8; // 80% quality for both JPEG and WebP
 #[derive(Debug, Clone)]
 struct TimingResult {
     total_avg: Duration,
+    #[allow(dead_code)]
     total_min: Duration,
+    #[allow(dead_code)]
     total_max: Duration,
     decode: Duration,
     process: Duration,
@@ -220,7 +221,7 @@ fn benchmark_heic_conversion(path: &Path, target_width: u32, format: EncodeForma
                 // Convert ImageBuffer to DynamicImage for webp encoder
                 let dynamic_img = image::DynamicImage::ImageRgb8(rgb_image);
                 let encoder = webp::Encoder::from_image(&dynamic_img).unwrap();
-                let webp_data = encoder.encode((QUALITY * 100.0) as f32);
+                let webp_data = encoder.encode(QUALITY * 100.0);
                 bytes.extend_from_slice(&webp_data);
             }
         }
@@ -293,7 +294,7 @@ fn benchmark_jpg_conversion(path: &Path, target_width: u32, format: EncodeFormat
                 // Convert ImageBuffer to DynamicImage for webp encoder
                 let dynamic_img = image::DynamicImage::ImageRgb8(result_img);
                 let encoder = webp::Encoder::from_image(&dynamic_img).unwrap();
-                let webp_data = encoder.encode((QUALITY * 100.0) as f32);
+                let webp_data = encoder.encode(QUALITY * 100.0);
                 bytes.extend_from_slice(&webp_data);
             }
         }

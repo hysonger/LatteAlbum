@@ -32,7 +32,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/directories", addr))
+            .get(format!("http://{}/api/directories", addr))
             .send()
             .await
             .unwrap();

@@ -148,11 +148,13 @@ mod tests {
 
     #[test]
     fn test_media_metadata_with_values() {
-        let mut metadata = MediaMetadata::default();
-        metadata.mime_type = Some("image/jpeg".to_string());
-        metadata.file_size = Some(1024);
-        metadata.width = Some(1920);
-        metadata.height = Some(1080);
+        let metadata = MediaMetadata {
+            mime_type: Some("image/jpeg".to_string()),
+            file_size: Some(1024),
+            width: Some(1920),
+            height: Some(1080),
+            ..MediaMetadata::default()
+        };
 
         assert_eq!(metadata.mime_type, Some("image/jpeg".to_string()));
         assert_eq!(metadata.file_size, Some(1024));
@@ -228,9 +230,6 @@ mod tests {
         use std::io;
         let io_error = io::Error::new(io::ErrorKind::NotFound, "file not found");
         let error: ProcessingError = io_error.into();
-        match error {
-            ProcessingError::IoError(_) => assert!(true),
-            _ => assert!(false),
-        }
+        assert!(matches!(error, ProcessingError::IoError(_)));
     }
 }

@@ -41,7 +41,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/files", addr))
+            .get(format!("http://{}/api/files", addr))
             .send()
             .await
             .unwrap();
@@ -60,7 +60,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/files?page=0&size=10", addr))
+            .get(format!("http://{}/api/files?page=0&size=10", addr))
             .send()
             .await
             .unwrap();
@@ -79,7 +79,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/files/non-existent-id", addr))
+            .get(format!("http://{}/api/files/non-existent-id", addr))
             .send()
             .await
             .unwrap();
@@ -95,7 +95,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/files/dates", addr))
+            .get(format!("http://{}/api/files/dates", addr))
             .send()
             .await
             .unwrap();
@@ -113,7 +113,7 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(&format!("http://{}/api/files?filterType=image", addr))
+            .get(format!("http://{}/api/files?filterType=image", addr))
             .send()
             .await
             .unwrap();

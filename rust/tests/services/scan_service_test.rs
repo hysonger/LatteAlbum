@@ -2,7 +2,6 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use tokio::time::Duration;
     use latte_album::fixtures::TestFixtures;
     use latte_album::db::{DatabasePool, MediaFileRepository};
@@ -13,22 +12,24 @@ mod tests {
     use tempfile::TempDir;
 
     /// Create a test configuration with file-based database for isolation
-    async fn create_test_config(photos_dir: &PathBuf) -> (Config, TempDir) {
+    async fn create_test_config(photos_dir: &std::path::Path) -> (Config, TempDir) {
         let temp_dir = tempfile::Builder::new()
             .prefix("latte_test_scan_")
             .tempdir()
             .expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
-        let mut config = Config::default();
-        config.base_path = photos_dir.to_string_lossy().to_string().into();
-        config.db_path = db_path;
+        let config = Config {
+            base_path: photos_dir.to_string_lossy().to_string().into(),
+            db_path,
+            ..Config::default()
+        };
 
         (config, temp_dir)
     }
 
     /// Create a test scan service
-    async fn create_test_scan_service(photos_dir: &PathBuf) -> (ScanService, DatabasePool, std::sync::Arc<ScanStateManager>, TempDir) {
+    async fn create_test_scan_service(photos_dir: &std::path::Path) -> (ScanService, DatabasePool, std::sync::Arc<ScanStateManager>, TempDir) {
         let (config, temp_dir) = create_test_config(photos_dir).await;
 
         let db = DatabasePool::new(&config.db_path)

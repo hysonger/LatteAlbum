@@ -342,12 +342,11 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
                     }
                 }
             }
-            exif::Tag::FocalLength => {
+            exif::Tag::FocalLength
                 // Focal length (e.g., "50 mm")
-                if !value_str.is_empty() {
+                if !value_str.is_empty() => {
                     metadata.focal_length = Some(value_str);
                 }
-            }
 
             _ => {}
         }
@@ -357,11 +356,10 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
 /// Clean EXIF string value - remove leading/trailing quotes added by the library
 pub(crate) fn clean_exif_string(s: &str) -> String {
     let s = s.trim();
-    if s.len() >= 2 {
-        if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+    if s.len() >= 2
+        && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''))) {
             return s[1..s.len()-1].to_string();
         }
-    }
     s.to_string()
 }
 
@@ -449,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_standard_image_processor_default() {
-        let processor = StandardImageProcessor::default();
+        let processor = StandardImageProcessor;
         assert!(processor.supports(Path::new("test.jpg")));
     }
 

@@ -67,7 +67,7 @@ fn main() {
         let start = Instant::now();
         let img = ImageReader::open(path).unwrap().decode().unwrap();
         let ratio = img.height() as f64 / img.width() as f64;
-        let height = (450u32 as f64 * ratio) as u32;
+        let height = (450_f64 * ratio) as u32;
         let resized = img.resize(450, height, image::imageops::FilterType::Lanczos3);
         let _rgb = resized.to_rgb8();
         let elapsed = start.elapsed();

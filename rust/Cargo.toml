@@ -5,6 +5,9 @@ edition = "2021"
 description = "A personal photo album application for NAS deployment"
 authors = ["Latte Album"]
 
+[lints.clippy]
+too_many_arguments = "allow"
+
 [features]
 default = ["video-processing"]
 video-processing = ["ffmpeg-next"]

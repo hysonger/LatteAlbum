@@ -157,7 +157,7 @@ fn transcoding_generate_heic_thumbnail(
     } else {
         // Data has padding, need to copy row by row (remove padding)
         // Use regular iterator instead of par_iter for single-threaded rayon scope
-        let rgb_data: Vec<u8> = (0..height as usize).into_iter()
+        let rgb_data: Vec<u8> = (0..height as usize)
             .flat_map(|row| {
                 let row_offset = row * stride;
                 interleaved.data[row_offset..row_offset + bytes_per_row].to_owned()

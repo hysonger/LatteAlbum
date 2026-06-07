@@ -164,7 +164,7 @@ pub async fn get_thumbnail(
     let size_label = get_size_label(size_str);
 
     // 1. Check memory cache first - return directly if hit (already in memory)
-    if let Some(data) = state.cache_service.get_thumbnail(&id, &size_label).await {
+    if let Some(data) = state.cache_service.get_thumbnail(&id, size_label).await {
         let mut etag = String::with_capacity(64);
         write!(&mut etag, "\"{}-{}\"", id, size_label).unwrap();
 
@@ -185,7 +185,7 @@ pub async fn get_thumbnail(
     }
 
     // 2. Check disk cache - stream from file if exists
-    if let Some(disk_path) = state.cache_service.get_thumbnail_disk_path(&id, &size_label) {
+    if let Some(disk_path) = state.cache_service.get_thumbnail_disk_path(&id, size_label) {
         match File::open(&disk_path).await {
             Ok(file) => {
                 let file_size = tokio::fs::metadata(&disk_path).await.map(|m| m.len()).unwrap_or(0);
@@ -223,7 +223,7 @@ pub async fn get_thumbnail(
     }
 
     // 3. Not in cache - generate thumbnail
-    match state.file_service.get_thumbnail(&id, &size_label, thumbnail_size, fit_to_height).await {
+    match state.file_service.get_thumbnail(&id, size_label, thumbnail_size, fit_to_height).await {
         Ok(Some((data, mime_type))) => {
             let mut etag = String::with_capacity(64);
             write!(&mut etag, "\"{}-{}\"", id, size_label).unwrap();
@@ -303,8 +303,8 @@ pub async fn get_original(
             if let Some(range_value) = range_header {
                 // Parse Range header: "bytes=start-end"
                 let range_str = range_value.to_str().unwrap_or("");
-                if range_str.starts_with("bytes=") {
-                    let ranges: Vec<&str> = range_str[6..].split(',').collect();
+                if let Some(range_values) = range_str.strip_prefix("bytes=") {
+                    let ranges: Vec<&str> = range_values.split(',').collect();
                     if let Some(range_part) = ranges.first() {
                         let parts: Vec<&str> = range_part.trim().split('-').collect();
                         if parts.len() == 2 {

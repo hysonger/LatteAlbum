@@ -197,7 +197,7 @@ fn main() {
             }
 
             let mut decoded = Video::empty();
-            while let Ok(_) = decoder.receive_frame(&mut decoded) {
+            while decoder.receive_frame(&mut decoded).is_ok() {
                 if let Err(e) = scaler.run(&decoded, &mut rgb_frame) {
                     println!("Scaler error: {:?}", e);
                     continue;
@@ -217,7 +217,7 @@ fn main() {
     if !frame_found {
         let _ = decoder.send_eof();
         let mut decoded = Video::empty();
-        while let Ok(_) = decoder.receive_frame(&mut decoded) {
+        while decoder.receive_frame(&mut decoded).is_ok() {
             if let Err(e) = scaler.run(&decoded, &mut rgb_frame) {
                 println!("Scaler error (flush): {:?}", e);
                 continue;
@@ -234,8 +234,8 @@ fn main() {
     }
 
     // Get RGB data and handle stride padding
-    let width = rgb_frame.width() as u32;
-    let height = rgb_frame.height() as u32;
+    let width = rgb_frame.width();
+    let height = rgb_frame.height();
     let data = rgb_frame.data(0);
     let stride = rgb_frame.stride(0);
     let bytes_per_row = (width * 3) as usize;

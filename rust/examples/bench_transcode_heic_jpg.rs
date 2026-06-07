@@ -74,7 +74,7 @@ fn main() {
     if !pairs.is_empty() {
         println!("=== Algorithm Comparison Summary ===");
         println!("Testing all filters on first pair at medium size (450px)...\n");
-        if let Some((heic_path, jpg_path)) = pairs.first() {
+        if let Some((_heic_path, jpg_path)) = pairs.first() {
             benchmark_algorithms(jpg_path, 450);
         }
     }
