@@ -1,8 +1,11 @@
+## IMPORTANT: 输出语言 / Output Language
+
+用户倾向于阅读中文。始终以 **中文** 向用户侧进行输出，以及编写注释和文档。
+The user tend to read Chinese text. ALWAYS output contents for human read in Chinese.
+
 ## Project Overview
 
 Latte Album is a personal photo album application for NAS deployment. Backend: Rust (Axum, SQLx, SQLite). Frontend: Vue 3 + TypeScript + Element Plus.
-
-**Version**: 0.1.0 | **License**: MIT
 
 ## Quick Start
 
@@ -42,30 +45,20 @@ See [config.rs](rust/src/config.rs) for full configuration.
 
 ### Header Search Path Configuration
 
-When building with FFmpeg (the `video-processing` feature), the compiler must find
-FFmpeg's headers and libraries. If they are not in system default paths, set these
-environment variables before running cargo.
+The compiler must find FFmpeg, libheif and other headers and libraries of dependencies to build the Rust part. 
+
+MAKE SURE their path are correctly set before building, or the build will fail. 
+
+If they are not in system default paths, set these environment variables before running cargo.
 
 ### macOS with Homebrew
 
-If you have both FFmpeg 8 (default) and FFmpeg 7 installed:
-
-```bash
-export PKG_CONFIG_PATH="/opt/homebrew/opt/ffmpeg@7/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
-export CPATH="/opt/homebrew/opt/ffmpeg@7/include:/opt/homebrew/include"
-export LIBRARY_PATH="/opt/homebrew/opt/ffmpeg@7/lib:/opt/homebrew/lib"
-```
-
-Then run cargo normally:
-
-```bash
-cd rust && cargo test --features video-processing
-```
+Since Homebrew put the installed libraries in different paths, you HAVE TO add the necessary paths of the dependencies to environment variables BEFORE running `cargo` commands. See `homebrew_build_env.sh` as an example.
 
 ### Linux (apt-based)
 
 If FFmpeg and libheif are installed via apt, headers are usually found automatically.
-If not:
+If not, try to add the paths. Here is an example:
 
 ```bash
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH"
