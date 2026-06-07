@@ -1,5 +1,4 @@
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::Response;
+use axum::extract::ws::{Message, WebSocket};
 use crate::websocket::broadcast::ScanProgressBroadcaster;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use std::sync::Arc;
@@ -70,9 +69,4 @@ pub async fn handle_websocket(ws: WebSocket, broadcaster: Arc<ScanProgressBroadc
         _ = forward_task => {},
         _ = receive_task => {},
     }
-}
-
-/// WebSocket upgrade handler
-pub async fn ws_handler(ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(|_socket| async {})
 }

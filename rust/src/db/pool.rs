@@ -57,20 +57,5 @@ impl DatabasePool {
         &self.pool
     }
 
-    /// Get mutable pool reference
-    pub fn get_pool_mut(&mut self) -> &mut SqlitePool {
-        &mut self.pool
-    }
 }
 
-impl From<SqlitePool> for DatabasePool {
-    fn from(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-}
-
-impl AsRef<SqlitePool> for DatabasePool {
-    fn as_ref(&self) -> &SqlitePool {
-        &self.pool
-    }
-}

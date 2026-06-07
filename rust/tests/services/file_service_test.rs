@@ -11,7 +11,7 @@ mod tests {
     use latte_album::config::Config;
 
     #[tokio::test]
-    async fn test_cache_service_operations() {
+    async fn test_cache_service_put_and_get() {
         let (_fixtures, _photos_dir) = TestFixtures::new();
         let db_path = std::path::Path::new(":memory:");
         let pool = DatabasePool::new(db_path).await.unwrap();
@@ -31,8 +31,8 @@ mod tests {
         ).await.expect("Failed to create cache service");
 
         // Test put and get
-        let test_data: &[u8] = b"test thumbnail data";
-        let _ = cache.put_thumbnail("test-file-id", "small", test_data).await;
+        let test_data = Bytes::from_static(b"test thumbnail data");
+        let _ = cache.put_thumbnail_bytes("test-file-id", "small", test_data.clone()).await;
 
         let retrieved: Option<Bytes> = cache.get_thumbnail("test-file-id", "small").await;
         assert!(retrieved.is_some());
@@ -41,41 +41,6 @@ mod tests {
         // Test cache miss
         let missed: Option<Bytes> = cache.get_thumbnail("other-file-id", "small").await;
         assert!(missed.is_none());
-
-        // Test delete
-        cache.delete_thumbnail("test-file-id", Some("small")).await;
-        let after_delete: Option<Bytes> = cache.get_thumbnail("test-file-id", "small").await;
-        assert!(after_delete.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cache_clear() {
-        let (_fixtures, _photos_dir) = TestFixtures::new();
-        let cache_dir = Builder::new()
-            .prefix("latte_test_cache_")
-            .tempdir()
-            .expect("Failed to create cache dir");
-
-        let config = Config::default();
-        let cache_dir_path = PathBuf::from(cache_dir.path());
-        let cache = CacheService::new(
-            &cache_dir_path,
-            config.cache_max_capacity,
-            config.cache_ttl_seconds,
-        ).await.expect("Failed to create cache service");
-
-        // Add some data
-        let _ = cache.put_thumbnail("file1", "small", b"data1").await;
-        let _ = cache.put_thumbnail("file2", "small", b"data2").await;
-
-        // Clear all
-        let _ = cache.clear_all().await;
-
-        // Verify cleared
-        let result1: Option<Bytes> = cache.get_thumbnail("file1", "small").await;
-        let result2: Option<Bytes> = cache.get_thumbnail("file2", "small").await;
-        assert!(result1.is_none());
-        assert!(result2.is_none());
     }
 
     #[tokio::test]
@@ -99,7 +64,7 @@ mod tests {
         assert!(size >= 0.0);
 
         // Add data
-        let _ = cache.put_thumbnail("file1", "small", &vec![0u8; 1000]).await;
+        let _ = cache.put_thumbnail_bytes("file1", "small", Bytes::from(vec![0u8; 1000])).await;
 
         // Size should increase
         let new_size = cache.get_cache_size_mb().await.unwrap_or(0.0);

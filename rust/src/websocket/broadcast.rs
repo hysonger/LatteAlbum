@@ -77,112 +77,6 @@ impl ScanProgressBroadcaster {
         self.get_current_message().await
     }
 
-    /// Send scan started message
-    /// phase should be the current phase (e.g., "processing")
-    pub async fn send_started(
-        &self,
-        files_to_add: u64,
-        files_to_update: u64,
-        files_to_delete: u64,
-        total_files: u64,
-        phase: &str,
-    ) {
-        let start_time = chrono::Utc::now().to_rfc3339();
-
-        let msg = ScanProgressMessage {
-            scanning: true,
-            status: "started".to_string(),
-            files_to_add,
-            files_to_update,
-            files_to_delete,
-            total_files,
-            start_time: Some(start_time),
-            phase: Some(phase.to_string()),
-            ..Default::default()
-        };
-        let _ = self.tx.send(msg);
-    }
-
-    /// Send scan completed message
-    /// Preserves the last phase information
-    pub async fn send_completed(&self) {
-        let mut msg = self.get_current_message().await;
-        msg.scanning = false;
-        msg.status = "completed".to_string();
-        // Keep the phase from the current message
-        let _ = self.tx.send(msg);
-    }
-
-    /// Send scan cancelled message
-    pub async fn send_cancelled(&self) {
-        let mut msg = self.get_current_message().await;
-        msg.scanning = false;
-        msg.status = "cancelled".to_string();
-        let _ = self.tx.send(msg);
-    }
-
-    /// Send error message
-    pub async fn send_error(&self) {
-        let mut msg = self.get_current_message().await;
-        msg.scanning = false;
-        msg.status = "error".to_string();
-        let _ = self.tx.send(msg);
-    }
-
-    /// Update total files
-    pub async fn update_total(&self, total: u64) {
-        let mut msg = self.get_current_message().await;
-        msg.total_files = total;
-        let _ = self.tx.send(msg);
-    }
-
-    /// Update phase information
-    pub async fn update_phase(&self, phase: &str) {
-        let mut msg = self.get_current_message().await;
-        msg.phase = Some(phase.to_string());
-        msg.scanning = true;
-        let _ = self.tx.send(msg);
-    }
-
-    /// Update phase information with total files
-    pub async fn update_phase_with_total(&self, phase: &str, total_files: u64) {
-        let mut msg = self.get_current_message().await;
-        msg.phase = Some(phase.to_string());
-        msg.scanning = true;
-        msg.total_files = total_files;
-        let _ = self.tx.send(msg);
-    }
-
-    /// Update progress with success and failure counts (can be called from sync context)
-    pub fn send_progress(&self, success_count: u64, failure_count: u64, total: u64) {
-        let mut msg = self.get_current_progress_sync();
-        msg.success_count = success_count;
-        msg.failure_count = failure_count;
-        let processed = success_count + failure_count;
-        let percentage = if total > 0 {
-            processed as f64 / total as f64 * 100.0
-        } else {
-            0.0
-        };
-        msg.progress_percentage = format!("{:.2}", percentage);
-        msg.status = "progress".to_string();
-        let _ = self.tx.send(msg);
-    }
-
-    /// Get current progress state (sync version for use in non-async contexts)
-    pub fn get_current_progress_sync(&self) -> ScanProgressMessage {
-        // Get the latest message from the channel
-        let mut rx = self.tx.subscribe();
-        if let Ok(msg) = rx.try_recv() {
-            msg
-        } else {
-            ScanProgressMessage {
-                scanning: false,
-                status: "idle".to_string(),
-                ..Default::default()
-            }
-        }
-    }
 
     async fn get_current_message(&self) -> ScanProgressMessage {
         // Get the latest message from the channel
@@ -256,54 +150,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_scan_progress_broadcaster_send_started() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.send_started(10, 5, 2, 100, "processing").await;
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_send_cancelled() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.send_cancelled().await;
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_send_error() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.send_error().await;
-    }
-
-    #[tokio::test]
     async fn test_scan_progress_broadcaster_get_current_progress() {
         let broadcaster = ScanProgressBroadcaster::new();
         let progress = broadcaster.get_current_progress().await;
         assert!(!progress.scanning);
         assert_eq!(progress.status, "idle");
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_update_phase() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.update_phase("collecting").await;
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_update_total() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.update_total(500).await;
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_send_progress() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        broadcaster.send_progress(50, 2, 100);
-    }
-
-    #[tokio::test]
-    async fn test_scan_progress_broadcaster_get_current_progress_sync() {
-        let broadcaster = ScanProgressBroadcaster::new();
-        let progress = broadcaster.get_current_progress_sync();
-        assert!(!progress.scanning);
     }
 
     #[tokio::test]

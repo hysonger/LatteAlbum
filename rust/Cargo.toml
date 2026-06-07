@@ -34,9 +34,6 @@ rayon-core = "1.12"
 # Video processing (FFmpeg) - optional
 ffmpeg-next = { version = "7", optional = true }
 
-# WebSocket
-tokio-tungstenite = "0.28"
-
 # Caching
 moka = { version = "0.12", features = ["future"] }
 
@@ -57,15 +54,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Utilities
 async-trait = "0.1"
 bytes = "1"
-futures = "0.3"
 futures-util = "0.3"
-itertools = "0.13"
 mime_guess = "2"
-tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
-
-# Scheduling
-tokio-cron-scheduler = "0.12"
 
 # EXIF Support
 # 由于小米14的照片存在超大的EXIF块，需要带入此库的最新提交以修复问题
@@ -85,7 +76,6 @@ webp = "0.3"
 tempfile = "3"
 assert_fs = "1"
 tokio-tungstenite = "0.28"
-futures = "0.3"
 tower = { version = "0.5", features = ["util", "timeout"] }
 
 [build-dependencies]

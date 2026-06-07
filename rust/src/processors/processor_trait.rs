@@ -121,34 +121,6 @@ impl ProcessorRegistry {
     }
 }
 
-/// Get image dimensions from file
-pub fn get_image_dimensions(path: &Path) -> Result<(u32, u32), ProcessingError> {
-    use std::fs::File;
-    use std::io::BufReader;
-    use image::GenericImageView;
-
-    let file = File::open(path).map_err(ProcessingError::IoError)?;
-    let reader = BufReader::new(file);
-    let decoder = image::ImageReader::new(reader)
-        .with_guessed_format()
-        .map_err(|e| ProcessingError::Processing(e.to_string()))?;
-
-    if let Some(_format) = decoder.format() {
-        let dimensions = decoder
-            .decode()
-            .map_err(|e| ProcessingError::Processing(e.to_string()))?
-            .dimensions();
-        Ok(dimensions)
-    } else {
-        Err(ProcessingError::UnsupportedFormat(
-            path.extension()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

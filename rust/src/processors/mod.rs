@@ -5,4 +5,3 @@ pub mod video_processor;
 pub mod file_metadata; // Unified file metadata extraction (file_size, create_time, modify_time)
 
 pub use processor_trait::{MediaProcessor, MediaMetadata, MediaType, ProcessingError, ProcessorRegistry};
-pub use image_processor::ExifTag;

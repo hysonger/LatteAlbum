@@ -12,7 +12,6 @@ export const useGalleryStore = defineStore('gallery', () => {
   const sortBy = ref('exifTimestamp')
   const sortOrder = ref('desc')
   const filterType = ref('all')
-  const currentPath = ref('')
   const pageSize = ref(100)
   const showDateResults = ref(false)
   const dateResults = ref<MediaFile[]>([])
@@ -28,7 +27,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     isLoading.value = true
     try {
       const response = await fileApi.getFiles({
-        path: currentPath.value,
         page,
         size: pageSize.value,
         sortBy: sortBy.value,
@@ -70,11 +68,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     }
   }
   
-  function reset() {
-    items.value = []
-    currentPage.value = 0
-    hasMore.value = true
-  }
 
   function setDateResults(files: MediaFile[]) {
     dateResults.value = files
@@ -95,7 +88,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     sortBy,
     sortOrder,
     filterType,
-    currentPath,
     pageSize,
     showDateResults,
     dateResults,
@@ -106,7 +98,6 @@ export const useGalleryStore = defineStore('gallery', () => {
     loadPage,
     loadNextPage,
     refresh,
-    reset,
     setDateResults,
     clearDateResults
   }

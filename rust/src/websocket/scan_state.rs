@@ -48,7 +48,6 @@ pub enum ProgressUpdate {
     IncrementFailure,
     SetFileCounts(u64, u64, u64), // add, update, delete
     ResetCounters,  // 仅重置计数器，不发送广播
-    Started,
     Completed,
     Error,
     Cancelled,
@@ -111,12 +110,6 @@ impl ScanStateManager {
                             current_state.success_count = 0;
                             current_state.failure_count = 0;
                         }
-                        ProgressUpdate::Started => {
-                            current_state.scanning = true;
-                            current_state.start_time = Some(chrono::Utc::now().to_rfc3339());
-                            current_state.success_count = 0;
-                            current_state.failure_count = 0;
-                        }
                         ProgressUpdate::Completed => {
                             current_state.scanning = false;
                             current_state.phase = ScanPhase::Completed;
@@ -144,7 +137,6 @@ impl ScanStateManager {
                     let should_send = matches!(
                         update,
                         ProgressUpdate::SetPhase(_)
-                            | ProgressUpdate::Started
                             | ProgressUpdate::Completed
                             | ProgressUpdate::Error
                             | ProgressUpdate::Cancelled
@@ -233,9 +225,6 @@ impl ScanStateManager {
         let _ = self.progress_sender.try_send(ProgressUpdate::ResetCounters);
     }
 
-    pub fn started(&self) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::Started);
-    }
 
     pub fn completed(&self) {
         let _ = self.progress_sender.try_send(ProgressUpdate::Completed);
@@ -440,19 +429,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_scan_state_manager_started() {
-        let (tx, _) = broadcast::channel(100);
-        let manager = ScanStateManager::new_with_interval(tx, 10);
-
-        manager.started();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = manager.get_state();
-        assert!(state.scanning);
-        assert!(state.start_time.is_some());
-    }
-
-    #[tokio::test]
     async fn test_scan_state_manager_completed() {
         let (tx, _) = broadcast::channel(100);
         let manager = ScanStateManager::new_with_interval(tx, 10);
@@ -557,7 +533,8 @@ mod tests {
         let manager = ScanStateManager::new_with_interval(tx, 10);
 
         // Start a scan
-        manager.started();
+        manager.set_phase(ScanPhase::Processing);
+        manager.set_total(10);
 
         // Complete the scan
         manager.completed();

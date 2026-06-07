@@ -53,7 +53,7 @@ If they are not in system default paths, set these environment variables before 
 
 ### macOS with Homebrew
 
-Since Homebrew put the installed libraries in different paths, you HAVE TO add the necessary paths of the dependencies to environment variables BEFORE running `cargo` commands. See `homebrew_build_env.sh` as an example.
+Since Homebrew put the installed libraries in different paths, you HAVE TO add the necessary paths of the dependencies to environment variables BEFORE running `cargo` commands. See `rust/homebrew_build_env.sh` as an example.
 
 ### Linux (apt-based)
 

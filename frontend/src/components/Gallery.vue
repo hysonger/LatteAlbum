@@ -172,13 +172,6 @@ const handleClick = (item: MediaFile) => {
   emit('click', item)
 }
 
-// 键盘导航支持
-const handleKeydown = (e: KeyboardEvent) => {
-  // 键盘导航逻辑可由父组件实现
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    // 保留键盘导航接口，未来可扩展
-  }
-}
 
 onMounted(() => {
   // 初始化哨兵 Observer
@@ -202,7 +195,6 @@ onMounted(() => {
   })
 
   window.addEventListener('resize', updateLayout)
-  window.addEventListener('keydown', handleKeydown)
   // 使用requestAnimationFrame确保DOM已渲染
   requestAnimationFrame(() => {
     updateColumnCount()
@@ -213,7 +205,6 @@ onMounted(() => {
 onUnmounted(() => {
   sentinelObserver.value?.disconnect()
   window.removeEventListener('resize', updateLayout)
-  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 

@@ -3,19 +3,11 @@ use crate::{
     app::State,
     db::DirectoryRepository,
 };
-use axum::{debug_handler, extract::Query, response::IntoResponse, Json};
-use serde::Deserialize;
-
-/// Query parameters for directory list
-#[derive(Debug, Deserialize)]
-pub struct DirectoryQueryParams {
-    pub path: Option<String>,
-}
+use axum::{debug_handler, response::IntoResponse, Json};
 
 #[debug_handler]
 pub async fn list_directories(
     State(state): State<AppState>,
-    Query(_params): Query<DirectoryQueryParams>,
 ) -> impl IntoResponse {
     let repo = DirectoryRepository::new(&state.db);
 

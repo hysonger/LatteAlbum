@@ -1,4 +1,4 @@
-use chrono::{Datelike, DateTime, NaiveDateTime, Utc};
+use chrono::{Datelike, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -214,27 +214,6 @@ pub struct DateInfo {
     pub count:i64,
 }
 
-/// System configuration
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct SystemConfig {
-    pub key: String,
-    pub value: Option<String>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-/// Scan history record
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct ScanHistory {
-    pub id: i64,
-    pub start_time: DateTime<Utc>,
-    pub end_time: Option<DateTime<Utc>>,
-    pub files_scanned: i64,
-    pub files_added: i64,
-    pub files_updated: i64,
-    pub files_deleted: i64,
-    pub status: String,
-}
-
 /// Validates EXIF timestamp (must be between 1900 and current year + 1)
 fn is_valid_exif_time(time: &NaiveDateTime) -> bool {
     let year = time.year();
@@ -400,35 +379,6 @@ mod tests {
 
         let json = serde_json::to_string(&dir).unwrap();
         assert!(json.contains("\"path\":\"/photos\""));
-    }
-
-    #[test]
-    fn test_system_config_serde() {
-        let config = SystemConfig {
-            key: "test_key".to_string(),
-            value: Some("test_value".to_string()),
-            updated_at: None,
-        };
-
-        let json = serde_json::to_string(&config).unwrap();
-        assert!(json.contains("\"key\":\"test_key\""));
-    }
-
-    #[test]
-    fn test_scan_history_serde() {
-        let history = ScanHistory {
-            id: 1,
-            start_time: Utc::now(),
-            end_time: None,
-            files_scanned: 100,
-            files_added: 50,
-            files_updated: 30,
-            files_deleted: 5,
-            status: "completed".to_string(),
-        };
-
-        let json = serde_json::to_string(&history).unwrap();
-        assert!(json.contains("\"status\":\"completed\""));
     }
 
     #[test]

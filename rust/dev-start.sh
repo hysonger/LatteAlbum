@@ -14,4 +14,4 @@ source .env.default
 mkdir -p "$(dirname "$LATTE_DB_PATH")"
 mkdir -p "$LATTE_CACHE_DIR"
 
-./cargo-with-vendor.sh run 2>&1 | tee "output.log"
+cargo run 2>&1 | tee "output.log"

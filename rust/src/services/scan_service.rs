@@ -9,29 +9,6 @@ use std::time::Instant;
 use tokio::fs;
 use tokio::sync::Semaphore;
 
-/// Scan progress tracking
-#[derive(Debug, Clone, Default)]
-pub struct ScanProgress {
-    pub scanning: bool,
-    pub phase: Option<String>,
-    pub total_files: u64,
-    pub success_count: u64,
-    pub failure_count: u64,
-    pub files_to_add: u64,
-    pub files_to_update: u64,
-    pub files_to_delete: u64,
-}
-
-impl ScanProgress {
-    pub fn get_progress_percentage(&self) -> String {
-        if self.total_files == 0 {
-            return "0.00".to_string();
-        }
-        let percentage = (self.success_count + self.failure_count) as f64 / self.total_files as f64 * 100.0;
-        format!("{:.2}", percentage)
-    }
-}
-
 /// Result of processing a single file
 #[derive(Debug, Clone)]
 struct ProcessingResult {

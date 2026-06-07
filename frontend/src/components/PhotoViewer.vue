@@ -29,9 +29,6 @@
               :poster="thumbnailUrl ?? undefined"
               @loadedmetadata="onVideoMetadataLoaded"
               @error="onVideoError"
-              @play="onVideoPlay"
-              @pause="onVideoPause"
-              @timeupdate="onVideoTimeUpdate"
             />
             <div v-if="videoError" class="video-error">
               <div class="error-content">
@@ -410,18 +407,6 @@ const onVideoError = (e: Event) => {
   
   videoError.value = errorMessage
   console.error('视频播放错误:', errorMessage, e)
-}
-
-const onVideoPlay = () => {
-  // Video playback started - can be used for analytics or UI state
-}
-
-const onVideoPause = () => {
-  // Video playback paused - can be used for analytics or UI state
-}
-
-const onVideoTimeUpdate = () => {
-  // 可以在这里更新播放进度
 }
 
 // 监听 neighbors 变化，更新当前索引
