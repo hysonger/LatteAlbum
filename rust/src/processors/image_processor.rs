@@ -204,13 +204,15 @@ impl MediaProcessor for StandardImageProcessor {
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            use image::ImageReader;
+            use image::{DynamicImage, ImageReader};
 
             let img = ImageReader::open(path)?.decode()?;
 
             // If target_size is 0, return full-size transcoded image (no resize)
             let result_img = if target_size == 0 {
-                img.to_rgb8()
+                // 先转为 RGBA8 保留 alpha，再用 ImageRgba8 包装后 to_rgb8()
+                // 这样会对透明/半透明区域进行白色背景合成，避免颜色错误
+                DynamicImage::ImageRgba8(img.to_rgba8()).to_rgb8()
             } else {
                 // thumbnail(w, h) - 缩放到不超过 w×h 范围，保持宽高比
                 let thumb = if fit_to_height {
@@ -224,7 +226,9 @@ impl MediaProcessor for StandardImageProcessor {
                     // 目标宽度 = target_size，高度按比例计算
                     img.thumbnail(target_size, u32::MAX)
                 };
-                thumb.to_rgb8()
+                let thumb = thumb.to_rgba8();
+                // 转为 RGBA8 保留 alpha，再用 ImageRgba8 包装后 to_rgb8() 进行白色背景合成
+                DynamicImage::ImageRgba8(thumb).to_rgb8()
             };
 
             let mut bytes = Vec::new();

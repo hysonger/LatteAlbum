@@ -17,6 +17,17 @@ struct ProcessingResult {
     error: Option<String>,
 }
 
+/// RAII guard that ensures is_scanning flag is always reset, even on panic
+struct ScanGuard {
+    is_scanning: Arc<AtomicBool>,
+}
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        self.is_scanning.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Service for scanning media files
 pub struct ScanService {
     config: Config,
@@ -64,20 +75,22 @@ impl ScanService {
     /// Start a scan operation
     pub async fn scan(&self) {
         tracing::info!("Scanning media files");
-        if self.is_scanning.load(Ordering::SeqCst) {
+        if self.is_scanning.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             tracing::warn!("Scan already in progress");
             return;
         }
 
-        self.is_scanning.store(true, Ordering::SeqCst);
+        // RAII guard: ensures is_scanning is always reset, even on panic
+        let _guard = ScanGuard {
+            is_scanning: self.is_scanning.clone(),
+        };
+
         self.is_cancelled.store(false, Ordering::SeqCst);
         self.total_files.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.failure_count.store(0, Ordering::SeqCst);
 
         self.perform_scan().await;
-
-        self.is_scanning.store(false, Ordering::SeqCst);
     }
 
     /// Scan implementation

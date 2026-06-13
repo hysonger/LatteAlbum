@@ -179,6 +179,13 @@ const currentFile = ref<MediaFile | null>(props.file)
 const currentIndex = ref(props.neighbors.findIndex(f => f.id === props.file.id))
 const currentImageUrl = ref<string | undefined>(undefined)
 const currentVideoUrl = ref<string | undefined>(undefined)
+
+const revokeImageUrl = () => {
+  if (currentImageUrl.value) {
+    URL.revokeObjectURL(currentImageUrl.value)
+    currentImageUrl.value = undefined
+  }
+}
 const thumbnailUrl = ref<string | undefined>(undefined)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const showDetailInfo = ref(false)
@@ -308,10 +315,11 @@ const loadMedia = async () => {
         try {
           const result = await fileApi.getThumbnail(currentFile.value.id, 'large')
           if (currentGeneration !== loadGeneration) return
+          revokeImageUrl()
           currentImageUrl.value = URL.createObjectURL(new Blob([result.data]))
         } catch (e) {
           console.error('加载媒体文件失败:', e)
-          currentImageUrl.value = undefined
+          revokeImageUrl()
         }
       } else {
         // 大屏设备：并行请求 full 和 large，优先显示先返回的
@@ -332,9 +340,11 @@ const loadMedia = async () => {
 
           if (winner.isFull) {
             // full 先返回，直接显示
+            revokeImageUrl()
             currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
           } else {
             // large 先返回，直接作为占位图显示
+            revokeImageUrl()
             currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
 
             // 继续等待 full，完成后替换
@@ -343,6 +353,7 @@ const loadMedia = async () => {
             // 再次检查世代是否匹配
             if (currentGeneration !== loadGeneration) return
 
+            revokeImageUrl()
             currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
           }
         } catch {
@@ -351,10 +362,11 @@ const loadMedia = async () => {
             try {
               const largeResult = await largeRequest
               if (currentGeneration !== loadGeneration) return
+              revokeImageUrl()
               currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
             } catch (e) {
               console.error('加载媒体文件失败:', e)
-              currentImageUrl.value = undefined
+              revokeImageUrl()
             }
           }
         }
@@ -427,7 +439,7 @@ watch(() => props.file, (newFile) => {
 
 // 监听当前文件变化
 watch(currentFile, () => {
-  currentImageUrl.value = undefined
+  revokeImageUrl()
   currentVideoUrl.value = undefined
   loadMedia()
   
@@ -470,11 +482,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   document.removeEventListener('keydown', handleKeydown)
-  // 释放 ObjectURL 防止内存泄漏
-  if (currentImageUrl.value) {
-    URL.revokeObjectURL(currentImageUrl.value)
-    currentImageUrl.value = undefined
-  }
+  revokeImageUrl()
 })
 
 // 添加键盘事件监听

@@ -18,12 +18,13 @@ fn get_rotation_angle(stream: &ffmpeg_next::Stream) -> Option<i32> {
             // Format: 16.16 fixed-point representation
             // Layout: [a, b, u, c, d, v, x, y, w] representing a 3x3 matrix
             if data.len() >= 36 {
-                let matrix: &[i32] = unsafe {
-                    std::slice::from_raw_parts(
-                        data.as_ptr() as *const i32,
-                        9
-                    )
-                };
+                let mut matrix = [0i32; 9];
+                for i in 0..9 {
+                    let start = i * 4;
+                    matrix[i] = i32::from_le_bytes(
+                        data[start..start + 4].try_into().unwrap()
+                    );
+                }
 
                 // Convert from fixed-point (16.16) to floating-point
                 let conv_fp = |x: i32| x as f64 / (1i32 << 16) as f64;
