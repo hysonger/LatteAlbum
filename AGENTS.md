@@ -119,7 +119,7 @@ FFmpeg is still required separately if using `video-processing`.
 ### Git Commits
 
 - Only commit file changes in current conversation. DO NOT bring irrelevent changes in.
-- Write clear, concise commit messages.
+- Write brief, clear and concise commit messages.
 
 ## Additional Documentation
 
