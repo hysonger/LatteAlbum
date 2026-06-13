@@ -101,6 +101,20 @@ fn transcoding_generate_heic_thumbnail(
     quality: f32,
     fit_to_height: bool,
 ) -> Result<Option<Vec<u8>>, ProcessingError> {
+    // 读取 EXIF Orientation，用于处理竖拍等方向变换
+    // 需要在缩放前检查方向，因为 90/270 度旋转会交换宽高
+    let orientation = crate::processors::image_processor::read_exif_orientation(path);
+    let swaps_dimensions = orientation.as_ref().map_or(false, |o| {
+        use image::metadata::Orientation;
+        matches!(
+            o,
+            Orientation::Rotate90
+                | Orientation::Rotate270
+                | Orientation::Rotate90FlipH
+                | Orientation::Rotate270FlipH
+        )
+    });
+
     // Read HEIC file using libheif-rs
     let path_str = path.to_string_lossy();
     let ctx = HeifContext::read_from_file(&path_str)
@@ -121,15 +135,21 @@ fn transcoding_generate_heic_thumbnail(
     let scaled = if target_size == 0 {
         image
     } else {
+        // 使用方向校正后的有效宽高计算缩放尺寸
+        let (ew, eh) = if swaps_dimensions {
+            (image.height(), image.width())
+        } else {
+            (image.width(), image.height())
+        };
         let (target_w, target_h) = if fit_to_height {
             // fit_to_height=true: 按固定高度缩放
-            let ratio = image.width() as f64 / image.height() as f64;
+            let ratio = ew as f64 / eh as f64;
             ((target_size as f64 * ratio) as u32, target_size)
         } else {
             // fit_to_height=false: 按固定宽度缩放
-            (target_size, (target_size as f64 * (image.height() as f64 / image.width() as f64)) as u32)
+            (target_size, (target_size as f64 * (eh as f64 / ew as f64)) as u32)
         };
-        if image.width() > target_w || image.height() > target_h {
+        if ew > target_w || eh > target_h {
             image.scale(target_w, target_h, None)
                 .map_err(|e| ProcessingError::Processing(e.to_string()))?
         } else {
@@ -169,7 +189,11 @@ fn transcoding_generate_heic_thumbnail(
 
     // RGBA to RGB conversion (discard alpha channel)
     // JPEG encoder requires 3-channel RGB data
-    let rgb_image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8();
+    let mut dyn_image = image::DynamicImage::ImageRgba8(rgba_image);
+    if let Some(orientation) = orientation {
+        dyn_image.apply_orientation(orientation);
+    }
+    let rgb_image = dyn_image.to_rgb8();
 
     // Encode as JPEG
     let mut jpeg_bytes = Vec::new();

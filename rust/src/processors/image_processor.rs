@@ -203,10 +203,15 @@ impl MediaProcessor for StandardImageProcessor {
         fit_to_height: bool,
     ) -> Result<Option<Vec<u8>>, ProcessingError> {
         let path = path.to_path_buf();
+        let orientation = read_exif_orientation(&path);
         tokio::task::spawn_blocking(move || {
             use image::{DynamicImage, ImageReader};
 
-            let img = ImageReader::open(path)?.decode()?;
+            let mut img = ImageReader::open(path)?.decode()?;
+
+            if let Some(orientation) = orientation {
+                img.apply_orientation(orientation);
+            }
 
             // If target_size is 0, return full-size transcoded image (no resize)
             let result_img = if target_size == 0 {
@@ -355,6 +360,17 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
             _ => {}
         }
     }
+}
+
+/// 从文件读取 EXIF Orientation 值（tag 274），用于缩略图方向校正
+pub(crate) fn read_exif_orientation(path: &Path) -> Option<image::metadata::Orientation> {
+    let file = std::fs::File::open(path).ok()?;
+    let exif = exif::Reader::new()
+        .read_from_container(&mut std::io::BufReader::new(file))
+        .ok()?;
+    let orientation_field = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
+    let value = orientation_field.value.get_uint(0)?;
+    image::metadata::Orientation::from_exif(value as u8)
 }
 
 /// Clean EXIF string value - remove leading/trailing quotes added by the library
