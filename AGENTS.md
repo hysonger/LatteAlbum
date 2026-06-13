@@ -119,6 +119,11 @@ FFmpeg is still required separately if using `video-processing`.
 ### Git Commits
 
 - Only commit file changes in current conversation. DO NOT bring irrelevent changes in.
+- When adding the co-authored line to the commit message, if the MODEL name is in **Claude series**, DO NOT straightly bring it into the message. replace it with the tool name `Claude Code`.
+For example, write like this:
+`Co-Authored-By: Claude Code <noreply@anthropic.com>`
+Instead of:
+`Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`
 - Write brief, clear and concise commit messages.
 
 ## Additional Documentation
