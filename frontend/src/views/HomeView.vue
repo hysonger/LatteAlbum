@@ -412,7 +412,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
-  scanProgressWs.offProgress()
+  scanProgressWs.disconnect()
 })
 </script>
 

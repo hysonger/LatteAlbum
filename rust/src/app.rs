@@ -287,13 +287,10 @@ impl App {
         let repo = MediaFileRepository::new(&self.state.db);
         if repo.is_empty().await? {
             info!("First run detected - starting initial scan...");
-            // Spawn scan in blocking thread pool to avoid blocking API requests
+            // Spawn initial scan in background
             let scan_service = self.state.scan_service.clone();
-            tokio::task::spawn_blocking(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    scan_service.scan().await;
-                });
+            tokio::spawn(async move {
+                scan_service.scan().await;
             });
         }
 

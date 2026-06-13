@@ -169,7 +169,7 @@ fn transcoding_generate_heic_thumbnail(
 
     // RGBA to RGB conversion (discard alpha channel)
     // JPEG encoder requires 3-channel RGB data
-    let rgb_image = image::DynamicImage::ImageRgba8(rgba_image);
+    let rgb_image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8();
 
     // Encode as JPEG
     let mut jpeg_bytes = Vec::new();

@@ -103,13 +103,14 @@ impl<'a> MediaFileRepository<'a> {
 
         let query = format!(
             "SELECT * FROM media_files
-             WHERE (exif_timestamp {} ? OR (exif_timestamp IS NULL AND create_time {} ?))
-             ORDER BY CASE WHEN exif_timestamp IS NOT NULL THEN 0 ELSE 1 END, exif_timestamp {} NULLS LAST, create_time {} {}
+             WHERE (exif_timestamp {} ? OR (exif_timestamp IS NULL AND create_time {} ?) OR (exif_timestamp IS NULL AND create_time IS NULL AND modify_time {} ?))
+             ORDER BY CASE WHEN exif_timestamp IS NOT NULL THEN 0 ELSE 1 END, exif_timestamp {} NULLS LAST, create_time {} NULLS LAST, modify_time {} {}
              LIMIT 1",
-            op, op, order, order, order
+            op, op, op, order, order, order, order
         );
 
         sqlx::query_as::<_, MediaFile>(&query)
+            .bind(sort_time)
             .bind(sort_time)
             .bind(sort_time)
             .fetch_optional(self.db.get_pool())

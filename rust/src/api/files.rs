@@ -81,8 +81,8 @@ pub async fn list_files(
     State(state): State<AppState>,
     Query(params): Query<FileQueryParams>,
 ) -> impl IntoResponse {
-    let page = params.page.unwrap_or(0);
-    let size = params.size.unwrap_or(50);
+    let page = params.page.unwrap_or(0).max(0);
+    let size = params.size.unwrap_or(50).clamp(1, 200);
     let sort_by = params.sort_by.as_deref().unwrap_or("exifTimestamp");
     let order = params.order.as_deref().unwrap_or("desc");
 
