@@ -11,6 +11,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
@@ -27,6 +28,12 @@ pub struct AppState {
     pub broadcaster: Arc<ScanProgressBroadcaster>,
     pub scan_state: Arc<ScanStateManager>,
     pub processors: Arc<ProcessorRegistry>,
+    /// Canonicalized absolute path to the assets directory.
+    /// Pre-computed once at startup to avoid repeated canonicalization
+    /// and used for path traversal prevention.
+    /// `None` when the assets directory does not exist (e.g. tests,
+    /// frontend not built yet). In that case all static requests get 404.
+    pub assets_base_path: Option<PathBuf>,
 }
 
 /// Main application structure
@@ -95,6 +102,18 @@ impl App {
             &config,
         ));
 
+        // Compute the canonicalized assets base path once at startup.
+        // This serves two purposes:
+        // 1. Performance: avoids repeated canonicalization on every static file request.
+        // 2. Security: the canonicalized path is used as a prefix anchor for path
+        //    traversal checks in serve_static.
+        //
+        // If the assets directory does not exist (e.g. in tests, or when the
+        // frontend has not been built yet), `assets_base_path` will be `None`,
+        // and all static-file requests will receive 404.
+        let static_assets_path = config.static_dir.join("assets");
+        let assets_base_path = std::fs::canonicalize(&static_assets_path).ok();
+
         let state = AppState {
             config,
             db,
@@ -104,6 +123,7 @@ impl App {
             broadcaster,
             scan_state,
             processors,
+            assets_base_path,
         };
 
         // Build router
@@ -151,26 +171,99 @@ impl App {
         }
     }
 
-    /// Serve static assets
-    async fn serve_static(Path(path): Path<String>) -> impl IntoResponse {
-        let static_dir = std::env::var("LATTE_STATIC_DIR")
-            .unwrap_or_else(|_| "./static/dist".to_string());
+    /// Serve static assets with path traversal protection.
+    ///
+    /// The handler does the following for every request:
+    /// 1. Validates the user-supplied path against common bypass techniques
+    ///    (empty, null bytes).
+    /// 2. Joins the path to the pre-canonicalized assets base path.
+    /// 3. Canonicalizes the resulting path (resolves `..`, symlinks, etc.).
+    /// 4. Verifies that the canonicalized result is still within the assets
+    ///    base path.
+    /// 5. Ensures only regular files are served (not directories or symlinks
+    ///    pointing outside the tree).
+    ///
+    /// If at any step the path escapes or the file type is wrong, the request
+    /// is rejected (403 Forbidden for traversal, 404 Not Found for missing
+    /// files).
+    async fn serve_static(
+        State(state): State<AppState>,
+        Path(path): Path<String>,
+    ) -> impl IntoResponse {
+        // If the assets directory doesn't exist (not built yet, tests, ...),
+        // every static-file request is a 404.
+        let assets_base = match &state.assets_base_path {
+            Some(p) => p,
+            None => {
+                return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response();
+            }
+        };
 
-        let static_path = std::path::PathBuf::from(&static_dir).join("assets");
-        let file_path = static_path.join(&path);
+        // 1. Reject empty paths
+        if path.trim().is_empty() {
+            return (axum::http::StatusCode::BAD_REQUEST, "Empty path").into_response();
+        }
 
-        if let Ok(content) = tokio::fs::read(&file_path).await {
-            let mime_type = mime_guess::from_path(&file_path)
-                .first()
-                .map(|m| m.to_string())
-                .unwrap_or_else(|| "application/octet-stream".to_string());
+        // 2. Reject paths that contain a null byte — these would be truncated by
+        //    the OS (e.g. "foo\0bar" → "foo"), allowing bypass of the prefix check.
+        if path.contains('\0') {
+            return (axum::http::StatusCode::BAD_REQUEST, "Invalid path").into_response();
+        }
 
-            Response::builder()
-                .header("Content-Type", mime_type)
-                .body(Body::from(content))
-                .unwrap()
-        } else {
-            (axum::http::StatusCode::NOT_FOUND, "Not found").into_response()
+        // 3. Join the user path onto the trusted base and canonicalize.
+        //    Path::join handles `.` and `..` components naively — canonicalize
+        //    resolves these as well as symlinks into an absolute, normalized path.
+        let file_path = assets_base.join(&path);
+
+        let resolved = match std::fs::canonicalize(&file_path) {
+            Ok(p) => p,
+            Err(_) => {
+                return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response();
+            }
+        };
+
+        // 4. Path traversal check: the resolved path MUST start with the
+        //    pre-canonicalized assets base path. This is the core security check.
+        if !resolved.starts_with(assets_base) {
+            tracing::warn!(
+                "Path traversal attempt blocked: requested={} resolved={}",
+                path,
+                resolved.display()
+            );
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                "Access denied",
+            )
+                .into_response();
+        }
+
+        // 5. Only serve regular files (not directories, not symlinks to outside).
+        //    canonicalize already resolved symlinks; an explicit is_file check is
+        //    defense-in-depth.
+        match tokio::fs::metadata(&resolved).await {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => {
+                return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response();
+            }
+            Err(_) => {
+                return (axum::http::StatusCode::NOT_FOUND, "Not found").into_response();
+            }
+        }
+
+        // 6. Read and serve the file
+        match tokio::fs::read(&resolved).await {
+            Ok(content) => {
+                let mime_type = mime_guess::from_path(&resolved)
+                    .first()
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+
+                Response::builder()
+                    .header("Content-Type", mime_type)
+                    .body(Body::from(content))
+                    .unwrap()
+            }
+            Err(_) => (axum::http::StatusCode::NOT_FOUND, "Not found").into_response(),
         }
     }
 

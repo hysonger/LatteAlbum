@@ -103,32 +103,24 @@ const updateColumnWidth = () => {
 const updateLayout = debounce(() => {
   updateColumnCount()
   updateColumnWidth()
-  // 布局变化后需要重新观察所有哨兵
-  reobserveSentinels()
 }, 100) // 100ms防抖，避免频繁重排
 
-// 设置列哨兵引用
+// 设置列哨兵引用（自动管理 IntersectionObserver）
 const setColumnSentinel = (el: any, columnId: number) => {
+  // 取消观察旧元素
+  const oldEl = columnSentinels.value.get(columnId)
+  if (oldEl && sentinelObserver.value) {
+    sentinelObserver.value.unobserve(oldEl)
+  }
+  // 观察新元素或移除记录
   if (el) {
+    if (sentinelObserver.value) {
+      sentinelObserver.value.observe(el)
+    }
     columnSentinels.value.set(columnId, el)
   } else {
     columnSentinels.value.delete(columnId)
   }
-}
-
-// 重新观察所有哨兵
-const reobserveSentinels = () => {
-  if (!sentinelObserver.value) return
-
-  // 取消观察所有现有哨兵
-  columnSentinels.value.forEach((el) => {
-    sentinelObserver.value?.unobserve(el)
-  })
-
-  // 重新观察所有哨兵
-  columnSentinels.value.forEach((el) => {
-    sentinelObserver.value?.observe(el)
-  })
 }
 
 // 触发加载更多
@@ -189,10 +181,6 @@ onMounted(() => {
     }
   )
 
-  // 观察所有列哨兵
-  columnSentinels.value.forEach((el) => {
-    sentinelObserver.value?.observe(el)
-  })
 
   window.addEventListener('resize', updateLayout)
   // 使用requestAnimationFrame确保DOM已渲染

@@ -42,11 +42,6 @@ export const useGalleryStore = defineStore('gallery', () => {
       
       hasMore.value = response.data.page < response.data.totalPages - 1
       currentPage.value = page
-      
-      // 预加载下一批图片
-      if (hasMore.value) {
-        loadNextPage()
-      }
     } catch (error) {
       console.error('加载页面失败:', error)
     } finally {
