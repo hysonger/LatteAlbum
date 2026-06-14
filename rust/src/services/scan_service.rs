@@ -109,7 +109,7 @@ impl ScanService {
             Ok(files) => files,
             Err(e) => {
                 tracing::error!("Failed to collect files: {}", e);
-                self.scan_state.error();
+                self.scan_state.error().await;
                 return;
             }
         };
@@ -123,7 +123,7 @@ impl ScanService {
         if total == 0 {
             // 设置完成状态
             self.scan_state.set_phase(ScanPhase::Completed);
-            self.scan_state.completed();
+            self.scan_state.completed().await;
             tracing::info!("Scan complete (no files) in {:?}", scan_start.elapsed());
             return;
         }
@@ -183,7 +183,7 @@ impl ScanService {
                 self.scan_state.set_phase(ScanPhase::Deleting);
                 self.delete_missing(&files).await;
                 // 发送取消状态
-                self.scan_state.cancelled();
+                self.scan_state.cancelled().await;
                 tracing::info!("Scan cancelled after writing {} files", success_results);
                 return;
             }
@@ -201,7 +201,7 @@ impl ScanService {
             if writing_cancelled || self.is_cancelled.load(Ordering::SeqCst) {
                 self.scan_state.set_phase(ScanPhase::Deleting);
                 self.delete_missing(&files).await;
-                self.scan_state.cancelled();
+                self.scan_state.cancelled().await;
                 tracing::info!("Scan cancelled during touch phase");
                 return;
             }
@@ -213,7 +213,7 @@ impl ScanService {
         tracing::debug!("Phase 5 (deleting): completed");
 
         // Scan complete
-        self.scan_state.completed();
+        self.scan_state.completed().await;
 
         let processed = self.success_count.load(Ordering::SeqCst) + self.failure_count.load(Ordering::SeqCst);
         let total_duration = scan_start.elapsed();

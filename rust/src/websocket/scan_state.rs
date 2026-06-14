@@ -219,16 +219,16 @@ impl ScanStateManager {
     }
 
 
-    pub fn completed(&self) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::Completed);
+    pub async fn completed(&self) {
+        let _ = self.progress_sender.send(ProgressUpdate::Completed).await;
     }
 
-    pub fn error(&self) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::Error);
+    pub async fn error(&self) {
+        let _ = self.progress_sender.send(ProgressUpdate::Error).await;
     }
 
-    pub fn cancelled(&self) {
-        let _ = self.progress_sender.try_send(ProgressUpdate::Cancelled);
+    pub async fn cancelled(&self) {
+        let _ = self.progress_sender.send(ProgressUpdate::Cancelled).await;
     }
 
     /// 获取当前状态（用于查询）
@@ -428,7 +428,7 @@ mod tests {
         let (tx, _) = broadcast::channel(100);
         let manager = ScanStateManager::new_with_interval(tx, 10);
 
-        manager.completed();
+        manager.completed().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
@@ -442,7 +442,7 @@ mod tests {
         let (tx, _) = broadcast::channel(100);
         let manager = ScanStateManager::new_with_interval(tx, 10);
 
-        manager.error();
+        manager.error().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
@@ -456,7 +456,7 @@ mod tests {
         let (tx, _) = broadcast::channel(100);
         let manager = ScanStateManager::new_with_interval(tx, 10);
 
-        manager.cancelled();
+        manager.cancelled().await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let state = manager.get_state();
@@ -532,7 +532,7 @@ mod tests {
         manager.set_total(10);
 
         // Complete the scan
-        manager.completed();
+        manager.completed().await;
 
         // Should receive the completed broadcast message (skip the started message)
         let mut completed_msg = None;
