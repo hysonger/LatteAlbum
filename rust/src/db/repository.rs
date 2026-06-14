@@ -139,18 +139,41 @@ impl<'a> MediaFileRepository<'a> {
     }
 
     /// Insert or update a media file
+    /// Uses ON CONFLICT(file_path) to preserve stable ids across rescans
     pub async fn upsert(&self, file: &MediaFile) -> Result<(), sqlx::Error> {
         let now = Utc::now().naive_utc();
 
         sqlx::query(
-            "INSERT OR REPLACE INTO media_files (
+            "INSERT INTO media_files (
                 id, file_path, file_name, file_type, mime_type, file_size,
                 width, height, exif_timestamp, exif_timezone_offset,
                 create_time, modify_time, last_scanned,
                 camera_make, camera_model, lens_model,
                 exposure_time, aperture, iso, focal_length,
                 duration, video_codec, thumbnail_generated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET
+                file_name = excluded.file_name,
+                file_type = excluded.file_type,
+                mime_type = excluded.mime_type,
+                file_size = excluded.file_size,
+                width = excluded.width,
+                height = excluded.height,
+                exif_timestamp = excluded.exif_timestamp,
+                exif_timezone_offset = excluded.exif_timezone_offset,
+                create_time = excluded.create_time,
+                modify_time = excluded.modify_time,
+                last_scanned = excluded.last_scanned,
+                camera_make = excluded.camera_make,
+                camera_model = excluded.camera_model,
+                lens_model = excluded.lens_model,
+                exposure_time = excluded.exposure_time,
+                aperture = excluded.aperture,
+                iso = excluded.iso,
+                focal_length = excluded.focal_length,
+                duration = excluded.duration,
+                video_codec = excluded.video_codec,
+                thumbnail_generated = excluded.thumbnail_generated"
         )
         .bind(&file.id)
         .bind(&file.file_path)
@@ -324,6 +347,7 @@ impl<'a> MediaFileRepository<'a> {
     }
 
     /// Batch upsert files using QueryBuilder for efficient bulk INSERT
+    /// Uses ON CONFLICT(file_path) DO UPDATE to preserve stable ids across rescans
     pub async fn batch_upsert(&self, files: &[MediaFile]) -> Result<(), sqlx::Error> {
         use sqlx::QueryBuilder;
         use sqlx::Sqlite;
@@ -343,9 +367,8 @@ impl<'a> MediaFileRepository<'a> {
 
         // Process in batches to stay within SQLite parameter limits
         for chunk in files.chunks(MAX_FILES_PER_BATCH) {
-            // push_values automatically adds VALUES keyword
             let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
-                "INSERT OR REPLACE INTO media_files (
+                "INSERT INTO media_files (
                     id, file_path, file_name, file_type, mime_type, file_size,
                     width, height, exif_timestamp, exif_timezone_offset,
                     create_time, modify_time, last_scanned,
@@ -380,6 +403,32 @@ impl<'a> MediaFileRepository<'a> {
                     .push_bind(file.video_codec.clone())
                     .push_bind(if file.thumbnail_generated { 1 } else { 0 });
             });
+
+            // Append ON CONFLICT clause to preserve existing id on file_path conflict
+            query_builder.push(
+                " ON CONFLICT(file_path) DO UPDATE SET \
+                    file_name = excluded.file_name, \
+                    file_type = excluded.file_type, \
+                    mime_type = excluded.mime_type, \
+                    file_size = excluded.file_size, \
+                    width = excluded.width, \
+                    height = excluded.height, \
+                    exif_timestamp = excluded.exif_timestamp, \
+                    exif_timezone_offset = excluded.exif_timezone_offset, \
+                    create_time = excluded.create_time, \
+                    modify_time = excluded.modify_time, \
+                    last_scanned = excluded.last_scanned, \
+                    camera_make = excluded.camera_make, \
+                    camera_model = excluded.camera_model, \
+                    lens_model = excluded.lens_model, \
+                    exposure_time = excluded.exposure_time, \
+                    aperture = excluded.aperture, \
+                    iso = excluded.iso, \
+                    focal_length = excluded.focal_length, \
+                    duration = excluded.duration, \
+                    video_codec = excluded.video_codec, \
+                    thumbnail_generated = excluded.thumbnail_generated"
+            );
 
             let query = query_builder.build();
             query.execute(tx.as_mut()).await?;
