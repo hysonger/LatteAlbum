@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
@@ -33,6 +34,17 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       global: 'window'
+    },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      include: ['src/**/*.{spec,test}.ts'],
+      setupFiles: ['src/test/setup.ts'],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'html'],
+        exclude: ['src/test/**', 'src/main.ts', 'src/**/*.d.ts']
+      }
     }
   }
 })

@@ -50,6 +50,20 @@ cd frontend && npm run build
 ./package.sh
 ```
 
+### Testing (Frontend)
+
+前端基于 Vitest（选型与约定见 [docs/frontend-testing.md](docs/frontend-testing.md)）：
+
+```bash
+cd frontend
+npm run test          # 单次运行全部用例（CI 用）
+npm run test:watch    # watch 模式，开发时持续运行
+npm run test:ui       # 可视化测试面板
+npm run test:coverage # 生成覆盖率报告（coverage/index.html）
+```
+
+测试文件就近平铺在 `src/` 下，命名为 `*.spec.ts`；DOM 环境为 jsdom。后端测试仍用 `cd rust && ./cargo-with-vendor.sh test`。
+
 ## Key Environment Variables
 
 The program requires necessary environment variables set properly to find and put files.
@@ -131,3 +145,4 @@ Instead of:
 - [Architecture Guide](docs/architecture.md) - Project architecture, design patterns, core systems
 - [Additional Information](docs/additional.md) - Other information that might be helpful to handle the project
 - [Known Issues](docs/known-issues.md) - Known issues and workarounds
+- [Frontend Testing](docs/frontend-testing.md) - 前端测试框架选型、目录约定与各层测试范式
