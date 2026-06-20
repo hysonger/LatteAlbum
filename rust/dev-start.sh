@@ -5,10 +5,7 @@
 cd "$(dirname "$0")"
 
 # 加载环境变量配置
-source .env.test
-
-# 设置默认值（如果环境变量未设置）
-source .env.default
+source .env.develop
 
 # 创建必要目录
 mkdir -p "$(dirname "$LATTE_DB_PATH")"
