@@ -3,7 +3,7 @@
     <div class="viewer-content">
       <button class="nav-btn prev" @click="prev" :disabled="!hasPrev">‹</button>
       
-      <div class="media-container" :style="containerStyle">
+      <div class="media-container" ref="containerRef" :style="containerStyle">
         <!-- 图片 -->
         <template v-if="isImage">
           <!-- 图片加载占位符 -->
@@ -15,8 +15,14 @@
             v-show="isImageLoaded"
             :src="currentImageUrl ?? undefined"
             :alt="currentFile?.fileName"
+            :style="imgStyle"
             @load="handleImageLoad"
             @error="handleError"
+            @dblclick="onDoubleClick"
+            @pointerdown="onPointerDown"
+            @pointermove="onPointerMove"
+            @pointerup="onPointerUp"
+            @pointercancel="onPointerCancel"
           />
         </template>
         <!-- 视频 -->
@@ -157,9 +163,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { fileApi } from '@/services/api'
 import { useScreenSize } from '@/composables/useScreenSize'
+import { useImageZoom } from '@/composables/useImageZoom'
 import { formatDuration, formatFileSize, formatDate, formatExposureTime, downloadFile } from '@/utils/format'
 import type { MediaFile } from '@/types'
 
@@ -241,6 +248,21 @@ const containerStyle = computed(() => {
     height: `${height}px`
   }
 })
+
+
+// 缩放与拖拽：仅在图片类型启用（视频禁用）
+const containerRef = ref<HTMLElement | null>(null)
+const {
+  imgStyle,
+  zoomByCenter,
+  onDoubleClick,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  reclamp,
+  reset: resetZoom,
+} = useImageZoom(containerRef, { enabled: isImage })
 
 
 // 导航操作
@@ -439,10 +461,11 @@ watch(() => props.file, (newFile) => {
 
 // 监听当前文件变化
 watch(currentFile, () => {
+  resetZoom()
   revokeImageUrl()
   currentVideoUrl.value = undefined
   loadMedia()
-  
+
   if (currentFile.value) {
     emit('change', currentFile.value)
   }
@@ -452,6 +475,11 @@ watch(currentFile, () => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     close()
+  } else if (isImage.value && (e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_')) {
+    // Ctrl/Command + +/- 缩放（以图片中心为锚点），阻止浏览器默认缩放
+    e.preventDefault()
+    const isZoomIn = e.key === '+' || e.key === '='
+    zoomByCenter(isZoomIn ? 1.25 : 1 / 1.25)
   } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     // 视频播放时不拦截方向键，让 video 控件自行处理快进快退
     if (isVideo.value && videoRef.value && !videoRef.value.paused) {
@@ -468,6 +496,8 @@ const handleKeydown = (e: KeyboardEvent) => {
 // 窗口大小变化时触发重新计算
 const handleResize = () => {
   windowResizeKey.value++
+  // 容器尺寸变化后重新 clamp，避免缩放态下露出黑边（须等 DOM 更新到新尺寸）
+  nextTick(() => reclamp())
 }
 
 // 初始化
