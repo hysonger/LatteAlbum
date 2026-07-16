@@ -31,10 +31,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavfilter-dev libavdevice-dev libpostproc-dev libswresample-dev libheif-dev
 
-      - name: Install frontend dependencies and build
+      - name: Install frontend dependencies
         run: |
           cd frontend
           npm install
+
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm run test
+
+      - name: Build frontend
+        run: |
+          cd frontend
           npm run build
 
       - name: Build and test Rust backend
