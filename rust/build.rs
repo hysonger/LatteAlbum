@@ -48,6 +48,7 @@ fn build_from_vendor() {
     {
         use cmake::Config;
         use std::fs;
+        use std::path::PathBuf;
 
         println!("cargo:rerun-if-changed=vendor/libheif");
 
