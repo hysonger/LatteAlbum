@@ -66,4 +66,18 @@ describe('useScreenSize', () => {
     expect(wrapper.text()).toBe('mobile')
     wrapper.unmount()
   })
+
+  it('多个消费方之一卸载后，其余消费方仍响应 resize（回归：共享监听器被去重移除的问题）', async () => {
+    const a = mountScreen()
+    const b = mountScreen()
+    await resizeTo(1280)
+    expect(a.text()).toBe('desktop')
+
+    // 模拟关闭灯箱：其中一个消费方卸载
+    b.unmount()
+
+    await resizeTo(500)
+    expect(a.text()).toBe('mobile')
+    a.unmount()
+  })
 })

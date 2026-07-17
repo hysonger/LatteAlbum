@@ -1,5 +1,14 @@
 <template>
-  <div class="media-card" ref="cardRef" @click="$emit('click', item)">
+  <div
+    class="media-card"
+    ref="cardRef"
+    role="button"
+    tabindex="0"
+    :aria-label="`${item.fileType === 'video' ? '视频' : '照片'}：${item.fileName}`"
+    @click="$emit('click', item)"
+    @keydown.enter.prevent="$emit('click', item)"
+    @keydown.space.prevent="$emit('click', item)"
+  >
     <div
       class="thumbnail-container"
       :class="{ truncated: isTruncated }"
@@ -150,6 +159,11 @@ onUnmounted(() => {
 .media-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.media-card:focus-visible {
+  outline: 2px solid #409eff;
+  outline-offset: 2px;
 }
 
 .thumbnail-container {

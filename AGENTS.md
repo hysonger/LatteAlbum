@@ -36,10 +36,13 @@ When finding and checking the documents, DO NOT miss any of these positions abov
 ```bash
 # Backend (in rust/ directory). 
 # ./cargo-with-vendor.sh is an OPTIONAL wrapper for cargo. Refer to content below to get details.
-./cargo-with-vendor.sh run
+cd rust/ && ./cargo-with-vendor.sh run
 
 # Frontend (in frontend/ directory)
 npm install && npm run dev
+
+# Backend Local Testing
+cd rust/ && ./dev-start.sh
 ```
 
 ### Production Build

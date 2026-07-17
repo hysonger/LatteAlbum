@@ -187,12 +187,6 @@ const currentIndex = ref(props.neighbors.findIndex(f => f.id === props.file.id))
 const currentImageUrl = ref<string | undefined>(undefined)
 const currentVideoUrl = ref<string | undefined>(undefined)
 
-const revokeImageUrl = () => {
-  if (currentImageUrl.value) {
-    URL.revokeObjectURL(currentImageUrl.value)
-    currentImageUrl.value = undefined
-  }
-}
 const thumbnailUrl = ref<string | undefined>(undefined)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const showDetailInfo = ref(false)
@@ -314,7 +308,10 @@ const downloadOriginal = async () => {
 }
 
 // 加载媒体文件
-const loadMedia = async () => {
+// 图片直接使用后端缩略图 URL（由浏览器按 HTTP 缓存管理），
+// 不使用 Blob + createObjectURL：吊销（revokeObjectURL）仍在显示/解码中的
+// blob 图会触发渲染进程崩溃（见 docs/known-issues.md 或 dogfood 报告 ISSUE-002）。
+const loadMedia = () => {
   if (!currentFile.value) return
 
   // 重置图片加载状态
@@ -323,93 +320,50 @@ const loadMedia = async () => {
   // 增加世代计数，用于防止竞态条件
   const currentGeneration = ++loadGeneration
 
-  try {
-    if (isImage.value) {
-      isLoading.value = true
-      const isHeif = Boolean(currentFile.value.fileName) &&
-        (currentFile.value.fileName.toLowerCase().endsWith('.heic') ||
-         currentFile.value.fileName.toLowerCase().endsWith('.heif'))
-      isConverting.value = isHeif
+  if (isImage.value) {
+    isLoading.value = true
+    const isHeif = Boolean(currentFile.value.fileName) &&
+      (currentFile.value.fileName.toLowerCase().endsWith('.heic') ||
+       currentFile.value.fileName.toLowerCase().endsWith('.heif'))
+    isConverting.value = isHeif
 
-      // 小屏设备只请求 large 尺寸，大屏设备并行请求 full 和 large
-      if (isSmallScreen.value) {
-        // 小屏设备：只使用 large 尺寸，避免加载过大的图片
-        try {
-          const result = await fileApi.getThumbnail(currentFile.value.id, 'large')
-          if (currentGeneration !== loadGeneration) return
-          revokeImageUrl()
-          currentImageUrl.value = URL.createObjectURL(new Blob([result.data]))
-        } catch (e) {
-          console.error('加载媒体文件失败:', e)
-          revokeImageUrl()
-        }
-      } else {
-        // 大屏设备：并行请求 full 和 large，优先显示先返回的
-        // full: 全尺寸转码图（JPEG格式，节省流量）
-        // large: 大尺寸缩略图作为备选/占位图
-        const fullRequest = fileApi.getThumbnail(currentFile.value.id, 'full')
-        const largeRequest = fileApi.getThumbnail(currentFile.value.id, 'large')
+    // 先用 large 尺寸作为占位图显示
+    const largeUrl = fileApi.getThumbnailUrl(currentFile.value.id, 'large')
+    currentImageUrl.value = largeUrl
 
-        try {
-          // 使用 Promise.race 竞争，先完成的先处理
-          const winner: { result: { data: BlobPart }; isFull: boolean } = await Promise.race([
-            fullRequest.then(result => ({ result, isFull: true })),
-            largeRequest.then(result => ({ result, isFull: false }))
-          ])
-
-          // 检查世代是否匹配（可能被翻页中断）
-          if (currentGeneration !== loadGeneration) return
-
-          if (winner.isFull) {
-            // full 先返回，直接显示
-            revokeImageUrl()
-            currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
-          } else {
-            // large 先返回，直接作为占位图显示
-            revokeImageUrl()
-            currentImageUrl.value = URL.createObjectURL(new Blob([winner.result.data]))
-
-            // 继续等待 full，完成后替换
-            const fullResult = await fullRequest
-
-            // 再次检查世代是否匹配
-            if (currentGeneration !== loadGeneration) return
-
-            revokeImageUrl()
-            currentImageUrl.value = URL.createObjectURL(new Blob([fullResult.data]))
-          }
-        } catch {
-          // 如果 full 失败，尝试使用 large 作为备选
-          if (currentImageUrl.value === undefined && currentGeneration === loadGeneration) {
-            try {
-              const largeResult = await largeRequest
-              if (currentGeneration !== loadGeneration) return
-              revokeImageUrl()
-              currentImageUrl.value = URL.createObjectURL(new Blob([largeResult.data]))
-            } catch (e) {
-              console.error('加载媒体文件失败:', e)
-              revokeImageUrl()
-            }
-          }
-        }
+    // 大屏设备：后台预加载 full 尺寸，完成后替换占位图
+    // full: 全尺寸转码图（JPEG格式，节省流量）
+    if (!isSmallScreen.value) {
+      const fullUrl = fileApi.getThumbnailUrl(currentFile.value.id, 'full')
+      const preloader = new Image()
+      preloader.onload = () => {
+        // 检查世代是否匹配（可能被翻页中断）
+        if (currentGeneration !== loadGeneration) return
+        currentImageUrl.value = fullUrl
       }
-    } else if (isVideo.value) {
-      // 视频使用流式播放，直接使用URL，无需下载到内存
-      // 后端支持 Range 请求，浏览器可以自动进行 seek 和流式播放
-      thumbnailUrl.value = fileApi.getThumbnailUrl(currentFile.value.id, 'large')
-      currentVideoUrl.value = fileApi.getOriginalFileUrl(currentFile.value.id)
+      preloader.onerror = () => {
+        // full 加载失败时保留 large 显示
+        console.error('加载 full 尺寸图片失败:', fullUrl)
+      }
+      preloader.src = fullUrl
     }
-  } finally {
-    isLoading.value = false
-    isConverting.value = false
+  } else if (isVideo.value) {
+    // 视频使用流式播放，直接使用URL，无需下载到内存
+    // 后端支持 Range 请求，浏览器可以自动进行 seek 和流式播放
+    thumbnailUrl.value = fileApi.getThumbnailUrl(currentFile.value.id, 'large')
+    currentVideoUrl.value = fileApi.getOriginalFileUrl(currentFile.value.id)
   }
 }
 
 const handleImageLoad = () => {
   isImageLoaded.value = true
+  isLoading.value = false
+  isConverting.value = false
 }
 
 const handleError = () => {
+  isLoading.value = false
+  isConverting.value = false
   console.error('媒体文件加载失败')
 }
 
@@ -462,7 +416,7 @@ watch(() => props.file, (newFile) => {
 // 监听当前文件变化
 watch(currentFile, () => {
   resetZoom()
-  revokeImageUrl()
+  currentImageUrl.value = undefined
   currentVideoUrl.value = undefined
   loadMedia()
 
@@ -474,6 +428,10 @@ watch(currentFile, () => {
 // 键盘事件监听
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
+    // 阻止浏览器原生 ESC「停止加载」行为：在自动化/Chromium 环境下，
+    // 原生 ESC 中止图片管线的加载会触发渲染进程崩溃（标签页变 about:blank）。
+    // 查看器自行处理 ESC 关闭，无需原生行为。见 dogfood 报告 ISSUE-002。
+    e.preventDefault()
     close()
   } else if (isImage.value && (e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_')) {
     // Ctrl/Command + +/- 缩放（以图片中心为锚点），阻止浏览器默认缩放
@@ -512,7 +470,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   document.removeEventListener('keydown', handleKeydown)
-  revokeImageUrl()
 })
 
 // 添加键盘事件监听

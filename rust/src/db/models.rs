@@ -30,6 +30,36 @@ mod date_serialization {
     }
 }
 
+/// Custom serialization for UTC NaiveDateTime to ISO string format with "Z" suffix.
+/// Used for fields stored as UTC wall clock (create_time, modify_time, last_scanned),
+/// so that clients (e.g. JavaScript `new Date()`) parse them as UTC instead of local time.
+mod utc_date_serialization {
+    use chrono::NaiveDateTime;
+    use serde::{Deserialize, Deserializer};
+
+    pub fn serialize<S>(date: &Option<NaiveDateTime>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match date {
+            Some(d) => serializer.serialize_str(&format!("{}Z", d.format("%Y-%m-%dT%H:%M:%S"))),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<NaiveDateTime>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = Option::<String>::deserialize(deserializer)?;
+        match s {
+            // 兼容带与不带 "Z" 后缀的两种格式
+            Some(str) => Ok(NaiveDateTime::parse_from_str(str.trim_end_matches('Z'), "%Y-%m-%dT%H:%M:%S").ok()),
+            None => Ok(None),
+        }
+    }
+}
+
 /// File type enumeration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileType {
@@ -95,24 +125,24 @@ pub struct MediaFile {
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "createTime",
-        serialize_with = "date_serialization::serialize",
-        deserialize_with = "date_serialization::deserialize"
+        serialize_with = "utc_date_serialization::serialize",
+        deserialize_with = "utc_date_serialization::deserialize"
     )]
     pub create_time: Option<NaiveDateTime>,
 
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "modifyTime",
-        serialize_with = "date_serialization::serialize",
-        deserialize_with = "date_serialization::deserialize"
+        serialize_with = "utc_date_serialization::serialize",
+        deserialize_with = "utc_date_serialization::deserialize"
     )]
     pub modify_time: Option<NaiveDateTime>,
 
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "lastScanned",
-        serialize_with = "date_serialization::serialize",
-        deserialize_with = "date_serialization::deserialize"
+        serialize_with = "utc_date_serialization::serialize",
+        deserialize_with = "utc_date_serialization::deserialize"
     )]
     pub last_scanned: Option<NaiveDateTime>,
 
@@ -416,6 +446,32 @@ mod tests {
         assert!(json.contains("\"filePath\":\"/test.jpg\""));
         assert!(json.contains("\"width\":1920"));
         assert!(json.contains("\"height\":1080"));
+    }
+
+    #[test]
+    fn test_utc_fields_serialize_with_z_suffix() {
+        let mut file = MediaFile::new("/test.jpg".to_string(), "test.jpg".to_string(), "image".to_string());
+        let utc_time = NaiveDate::from_ymd_opt(2025, 10, 5)
+            .unwrap()
+            .and_hms_opt(2, 15, 42)
+            .unwrap();
+        file.create_time = Some(utc_time);
+        file.modify_time = Some(utc_time);
+        file.last_scanned = Some(utc_time);
+        file.exif_timestamp = Some(utc_time);
+
+        let json = serde_json::to_string(&file).unwrap();
+        // UTC 字段带 "Z" 后缀，EXIF 时间（本地墙钟）不带
+        assert!(json.contains("\"createTime\":\"2025-10-05T02:15:42Z\""));
+        assert!(json.contains("\"modifyTime\":\"2025-10-05T02:15:42Z\""));
+        assert!(json.contains("\"lastScanned\":\"2025-10-05T02:15:42Z\""));
+        assert!(json.contains("\"exifTimestamp\":\"2025-10-05T02:15:42\""));
+
+        // 反序列化兼容带与不带 "Z" 的格式
+        let parsed: MediaFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.create_time, Some(utc_time));
+        assert_eq!(parsed.modify_time, Some(utc_time));
+        assert_eq!(parsed.last_scanned, Some(utc_time));
     }
 
     #[test]

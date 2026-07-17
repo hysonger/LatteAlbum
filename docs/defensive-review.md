@@ -73,6 +73,8 @@ self.is_scanning.store(true, Ordering::SeqCst);
 
 **修复**: 封装 `revokeImageUrl()` 辅助函数，在每次设置新 URL 前自动 `revoke` 旧 URL。所有 5 处 `createObjectURL` 调用点均改为先 `revokeImageUrl()` 再设置新值。
 
+**后续（2026-07-17）**: Blob 方案已整体移除——大图改用缩略图直链 URL + 离屏 `Image` 预加载 full 后替换，不再经过 `axios + createObjectURL`。ObjectURL 生命周期（及其泄漏/吊销竞态风险）已不存在，同时消除了 full+large 双份全图字节驻留 JS 内存的问题。见 `docs/known-issues.md`「灯箱 ESC 导致标签页变 about:blank」。
+
 ### S7. Gallery 级联加载所有页面 ✅ 已修复 (b595ab3)
 
 **位置**: `frontend/src/stores/gallery.ts:46-49`

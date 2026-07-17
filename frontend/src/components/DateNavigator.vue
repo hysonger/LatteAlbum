@@ -1,6 +1,6 @@
 <template>
   <div class="date-navigator">
-    <el-button @click="navigateDate(1)" :disabled="!canNavigatePrev" size="small">
+    <el-button @click="navigateDate(1)" :disabled="!canNavigatePrev" size="small" aria-label="上一天">
       <i class="fas fa-arrow-left"></i>
     </el-button>
     <el-date-picker
@@ -15,7 +15,7 @@
       size="small"
       :disabled-date="disabledDate"
     />
-    <el-button @click="navigateDate(-1)" :disabled="!canNavigateNext" size="small">
+    <el-button @click="navigateDate(-1)" :disabled="!canNavigateNext" size="small" aria-label="下一天">
       <i class="fas fa-arrow-right"></i>
     </el-button>
   </div>
