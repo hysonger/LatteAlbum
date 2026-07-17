@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { MediaFile, PaginatedResponse, DateInfo } from '@/types'
+import type { MediaFile, PaginatedResponse, DateInfo, GpsInfo } from '@/types'
 
 const API_BASE = '/api'
 
@@ -76,7 +76,12 @@ export const fileApi = {
     cameraModel?: string
   }) => {
     return apiClient.get<DateInfo[]>('/files/dates', { params })
-  }
+  },
+
+  // 按需获取照片的 GPS 经纬度（敏感信息端点，仅在用户展开详情面板时调用）
+  getFileGps: (id: string) => {
+    return apiClient.get<GpsInfo>(`/files/${id}/gps`)
+  },
 }
 
 // 系统API

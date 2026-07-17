@@ -84,6 +84,8 @@ pub fn create_test_media_file(file_name: &str) -> latte_album::db::MediaFile {
         duration: None,
         video_codec: None,
         thumbnail_generated: false,
+        gps_latitude: None,
+        gps_longitude: None,
     }
 }
 
@@ -125,5 +127,7 @@ pub fn create_test_media_file_with(
         duration: if file_type == "video" { Some(10.0) } else { None },
         video_codec: if file_type == "video" { Some("H264".to_string()) } else { None },
         thumbnail_generated: false,
+        gps_latitude: None,
+        gps_longitude: None,
     }
 }

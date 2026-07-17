@@ -175,6 +175,13 @@ pub struct MediaFile {
 
     #[serde(rename = "thumbnailGenerated")]
     pub thumbnail_generated: bool,
+
+    // GPS 是敏感信息：默认序列化不输出，仅通过 GET /api/files/{id}/gps 端点按需返回。
+    // skip 同时作用于 serialize/deserialize：前端不应回写 GPS。
+    #[serde(skip)]
+    pub gps_latitude: Option<f64>,
+    #[serde(skip)]
+    pub gps_longitude: Option<f64>,
 }
 
 impl MediaFile {
@@ -204,6 +211,8 @@ impl MediaFile {
             duration: None,
             video_codec: None,
             thumbnail_generated: false,
+            gps_latitude: None,
+            gps_longitude: None,
         }
     }
 
@@ -472,6 +481,23 @@ mod tests {
         assert_eq!(parsed.create_time, Some(utc_time));
         assert_eq!(parsed.modify_time, Some(utc_time));
         assert_eq!(parsed.last_scanned, Some(utc_time));
+    }
+
+    #[test]
+    fn test_media_file_gps_never_serialized() {
+        // GPS 是敏感信息：即使字段有值，序列化输出也绝不能包含 gpsLatitude / gpsLongitude。
+        // 这是安全回归保护 —— 防止未来误改 serde 属性导致坐标泄露。
+        let mut file = MediaFile::new("/test.jpg".to_string(), "test.jpg".to_string(), "image".to_string());
+        file.gps_latitude = Some(39.903333);
+        file.gps_longitude = Some(116.391667);
+
+        let json = serde_json::to_string(&file).unwrap();
+        assert!(
+            !json.contains("gpsLatitude") && !json.contains("gpsLongitude")
+                && !json.contains("gps_latitude") && !json.contains("gps_longitude")
+                && !json.contains("39.903333") && !json.contains("116.391667"),
+            "GPS 字段泄露到默认 JSON 序列化中: {}", json
+        );
     }
 
     #[test]

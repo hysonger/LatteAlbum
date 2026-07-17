@@ -58,6 +58,18 @@ pub struct NeighborResponse {
     pub next: Option<MediaFile>,
 }
 
+/// GPS info response for the sensitive-data endpoint.
+/// MediaFile skips GPS on default serialization; this is the only way to fetch it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpsInfo {
+    pub has_gps: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub longitude: Option<f64>,
+}
+
 /// Thumbnail size enum
 #[derive(Debug, Deserialize)]
 pub struct ThumbnailSize {
@@ -440,6 +452,33 @@ pub async fn get_neighbors(
         Ok(None) => (axum::http::StatusCode::NOT_FOUND, "File not found").into_response(),
         Err(e) => {
             warn!("Failed to get neighbors for {}: {}", id, e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// 按需返回照片的 GPS 经纬度（敏感信息端点）。
+/// MediaFile 默认序列化已跳过 GPS；前端在用户手动展开详情面板时才会调用此端点。
+#[debug_handler]
+pub async fn get_file_gps(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let repo = MediaFileRepository::new(&state.db);
+
+    match repo.find_by_id(&id).await {
+        Ok(Some(file)) => {
+            let has_gps = file.gps_latitude.is_some() && file.gps_longitude.is_some();
+            Json(GpsInfo {
+                has_gps,
+                latitude: file.gps_latitude,
+                longitude: file.gps_longitude,
+            })
+            .into_response()
+        }
+        Ok(None) => (axum::http::StatusCode::NOT_FOUND, "File not found").into_response(),
+        Err(e) => {
+            warn!("Failed to get GPS for {}: {}", id, e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }

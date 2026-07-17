@@ -150,8 +150,9 @@ impl<'a> MediaFileRepository<'a> {
                 create_time, modify_time, last_scanned,
                 camera_make, camera_model, lens_model,
                 exposure_time, aperture, iso, focal_length,
-                duration, video_codec, thumbnail_generated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                duration, video_codec, thumbnail_generated,
+                gps_latitude, gps_longitude
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_name = excluded.file_name,
                 file_type = excluded.file_type,
@@ -173,7 +174,9 @@ impl<'a> MediaFileRepository<'a> {
                 focal_length = excluded.focal_length,
                 duration = excluded.duration,
                 video_codec = excluded.video_codec,
-                thumbnail_generated = excluded.thumbnail_generated"
+                thumbnail_generated = excluded.thumbnail_generated,
+                gps_latitude = excluded.gps_latitude,
+                gps_longitude = excluded.gps_longitude"
         )
         .bind(&file.id)
         .bind(&file.file_path)
@@ -198,6 +201,8 @@ impl<'a> MediaFileRepository<'a> {
         .bind(file.duration)
         .bind(&file.video_codec)
         .bind(if file.thumbnail_generated { 1 } else { 0 })
+        .bind(file.gps_latitude)
+        .bind(file.gps_longitude)
         .execute(self.db.get_pool())
         .await?;
 
@@ -357,9 +362,9 @@ impl<'a> MediaFileRepository<'a> {
         }
 
         // SQLite parameter limit: 32766
-        // Each file uses 23 parameters, so max ~1424 files per batch
+        // Each file uses 25 parameters, so max ~1310 files per batch
         const MAX_PARAMS: usize = 32766;
-        const FIELDS_PER_FILE: usize = 23;
+        const FIELDS_PER_FILE: usize = 25;
         const MAX_FILES_PER_BATCH: usize = MAX_PARAMS / FIELDS_PER_FILE;
 
         let mut tx = self.db.get_pool().begin().await?;
@@ -374,7 +379,8 @@ impl<'a> MediaFileRepository<'a> {
                     create_time, modify_time, last_scanned,
                     camera_make, camera_model, lens_model,
                     exposure_time, aperture, iso, focal_length,
-                    duration, video_codec, thumbnail_generated
+                    duration, video_codec, thumbnail_generated,
+                    gps_latitude, gps_longitude
                 ) "
             );
 
@@ -401,7 +407,9 @@ impl<'a> MediaFileRepository<'a> {
                     .push_bind(file.focal_length.clone())
                     .push_bind(file.duration)
                     .push_bind(file.video_codec.clone())
-                    .push_bind(if file.thumbnail_generated { 1 } else { 0 });
+                    .push_bind(if file.thumbnail_generated { 1 } else { 0 })
+                    .push_bind(file.gps_latitude)
+                    .push_bind(file.gps_longitude);
             });
 
             // Append ON CONFLICT clause to preserve existing id on file_path conflict
@@ -427,7 +435,9 @@ impl<'a> MediaFileRepository<'a> {
                     focal_length = excluded.focal_length, \
                     duration = excluded.duration, \
                     video_codec = excluded.video_codec, \
-                    thumbnail_generated = excluded.thumbnail_generated"
+                    thumbnail_generated = excluded.thumbnail_generated, \
+                    gps_latitude = excluded.gps_latitude, \
+                    gps_longitude = excluded.gps_longitude"
             );
 
             let query = query_builder.build();

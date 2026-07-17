@@ -56,6 +56,10 @@ impl App {
         // Run migrations
         let migrations_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/db/migrations");
         db.migrate(&migrations_path).await?;
+        tracing::info!(
+            "Database migrations applied. GPS columns (gps_latitude, gps_longitude) available. \
+             Run a full rescan to populate GPS data for existing photos."
+        );
 
         // Create cache directory
         tokio::fs::create_dir_all(&config.cache_dir).await?;
@@ -148,6 +152,7 @@ impl App {
             .route("/api/files/{id}/thumbnail", get(files::get_thumbnail))
             .route("/api/files/{id}/original", get(files::get_original))
             .route("/api/files/{id}/neighbors", get(files::get_neighbors))
+            .route("/api/files/{id}/gps", get(files::get_file_gps))
             .route("/api/directories", get(directories::list_directories))
             .route("/api/system/rescan", post(system::trigger_rescan))
             .route("/api/system/scan/progress", get(system::get_scan_progress))

@@ -154,6 +154,29 @@
               <span class="meta-value">{{ currentFile.videoCodec }}</span>
             </div>
           </div>
+
+          <!-- 位置信息（敏感信息：按需加载，仅用户主动展开时请求） -->
+          <div class="meta-group" v-if="currentFile && !gpsCache.has(currentFile.id) && gpsLoading">
+            <div class="meta-item">
+              <span class="meta-label">位置信息</span>
+              <span class="meta-value meta-value--loading">加载位置信息...</span>
+            </div>
+          </div>
+          <div class="meta-group" v-else-if="currentGps?.hasGps && currentGps.latitude !== undefined && currentGps.longitude !== undefined">
+            <div class="meta-item meta-item--wide">
+              <span class="meta-label">位置信息</span>
+              <span class="meta-value">{{ formatCoordinate(currentGps.latitude, currentGps.longitude) }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">&nbsp;</span>
+              <a
+                class="meta-value meta-value--link"
+                :href="buildOsmUrl(currentGps.latitude, currentGps.longitude)"
+                target="_blank"
+                rel="noopener noreferrer"
+              >在地图中查看 ↗</a>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -163,12 +186,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { fileApi } from '@/services/api'
 import { useScreenSize } from '@/composables/useScreenSize'
 import { useImageZoom } from '@/composables/useImageZoom'
-import { formatDuration, formatFileSize, formatDate, formatExposureTime, downloadFile } from '@/utils/format'
-import type { MediaFile } from '@/types'
+import { formatDuration, formatFileSize, formatDate, formatExposureTime, downloadFile, formatCoordinate, buildOsmUrl } from '@/utils/format'
+import type { MediaFile, GpsInfo } from '@/types'
 
 const { isMobile: isSmallScreen } = useScreenSize()
 
@@ -194,6 +217,14 @@ const isLoading = ref(false)
 const isConverting = ref<boolean>(false)
 const videoError = ref<string | null>(null)
 const isImageLoaded = ref(false)
+
+// GPS 会话级缓存：key = fileId，value = GpsInfo 或 null（表示请求过但没有 GPS）。
+// 生命周期与 PhotoViewer 实例相同，关闭 viewer 自动释放。
+const gpsCache = reactive(new Map<string, GpsInfo | null>())
+const gpsLoading = ref(false)
+const currentGps = computed<GpsInfo | null | undefined>(() =>
+  currentFile.value ? gpsCache.get(currentFile.value.id) : undefined
+)
 
 // 用于触发窗口尺寸变化时的重新计算
 const windowResizeKey = ref(0)
@@ -280,7 +311,25 @@ const close = () => {
 }
 
 const toggleInfo = () => {
-  showDetailInfo.value = !showDetailInfo.value
+  const willShow = !showDetailInfo.value
+  showDetailInfo.value = willShow
+  if (willShow && currentFile.value && !gpsCache.has(currentFile.value.id)) {
+    loadGps(currentFile.value.id)
+  }
+}
+
+const loadGps = async (fileId: string) => {
+  if (gpsCache.has(fileId)) return
+  gpsLoading.value = true
+  try {
+    const { data } = await fileApi.getFileGps(fileId)
+    gpsCache.set(fileId, data)
+  } catch (e) {
+    console.error('加载 GPS 信息失败:', e)
+    gpsCache.set(fileId, null)
+  } finally {
+    gpsLoading.value = false
+  }
 }
 
 const downloadVideo = async () => {
@@ -802,6 +851,12 @@ defineExpose({
   margin-bottom: 8px;
 }
 
+.meta-group .meta-item--wide {
+  display: block;
+  min-width: 0;
+  margin-right: 0;
+}
+
 .meta-label {
   display: block;
   font-size: 0.7rem;
@@ -812,6 +867,22 @@ defineExpose({
   display: block;
   color: rgba(255, 255, 255, 0.9);
   word-break: break-word;
+}
+
+.meta-value--loading {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+.meta-value--link {
+  color: #6ab0ff;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.meta-value--link:hover {
+  color: #8fc3ff;
+  text-decoration: underline;
 }
 
 .close-btn {

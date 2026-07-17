@@ -42,3 +42,11 @@ export interface PaginatedResponse<T> {
   size: number
   totalPages: number
 }
+
+// GPS 坐标（敏感信息）。通过专用端点 /api/files/{id}/gps 按需获取，
+// MediaFile 列表/详情默认不带 GPS。
+export interface GpsInfo {
+  hasGps: boolean
+  latitude?: number
+  longitude?: number
+}

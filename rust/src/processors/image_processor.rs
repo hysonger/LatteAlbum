@@ -283,6 +283,12 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
         }
     };
 
+    // GPS DMS 原始值暂存：Lat/Lon 与各自的 Ref 是独立 tag，出现顺序不可预测
+    let mut lat_rational: Option<Vec<exif::Rational>> = None;
+    let mut lon_rational: Option<Vec<exif::Rational>> = None;
+    let mut lat_ref: Option<u8> = None;
+    let mut lon_ref: Option<u8> = None;
+
     for field in exif.fields() {
         let tag = field.tag;
         let value_str = clean_exif_string(&field.value.display_as(tag).to_string());
@@ -357,9 +363,107 @@ pub(crate) fn extract_exif(path: &Path, metadata: &mut MediaMetadata) {
                     metadata.focal_length = Some(value_str);
                 }
 
+            // --- GPS Coordinates ---
+            // 使用 Value::Rational / Value::Ascii 原始枚举匹配，避免依赖 display_as 的字符串格式。
+            // GPSLatitude/GPSLongitude 是 3 个 Rational 数组：[度, 分, 秒]。
+            exif::Tag::GPSLatitude => {
+                if let exif::Value::Rational(ref v) = field.value {
+                    if !v.is_empty() {
+                        lat_rational = Some(v.clone());
+                    }
+                }
+            }
+            exif::Tag::GPSLatitudeRef => {
+                if let exif::Value::Ascii(ref v) = field.value {
+                    if let Some(first) = v.first() {
+                        if let Some(&b) = first.first() {
+                            lat_ref = Some(b);
+                        }
+                    }
+                }
+            }
+            exif::Tag::GPSLongitude => {
+                if let exif::Value::Rational(ref v) = field.value {
+                    if !v.is_empty() {
+                        lon_rational = Some(v.clone());
+                    }
+                }
+            }
+            exif::Tag::GPSLongitudeRef => {
+                if let exif::Value::Ascii(ref v) = field.value {
+                    if let Some(first) = v.first() {
+                        if let Some(&b) = first.first() {
+                            lon_ref = Some(b);
+                        }
+                    }
+                }
+            }
+
             _ => {}
         }
     }
+
+    // 循环结束后换算 DMS → 十进制度数，写入 metadata
+    if let (Some(lat_dms), Some(lon_dms), Some(lat_r), Some(lon_r)) =
+        (lat_rational, lon_rational, lat_ref, lon_ref)
+    {
+        if let (Some(lat), Some(lon)) = (
+            dms_to_decimal(&lat_dms, lat_r, true),
+            dms_to_decimal(&lon_dms, lon_r, false),
+        ) {
+            // 过滤 (0.0, 0.0)：几内亚湾默认值，通常表示缺失数据
+            if !(lat == 0.0 && lon == 0.0) {
+                metadata.gps_latitude = Some(round6(lat));
+                metadata.gps_longitude = Some(round6(lon));
+            }
+        }
+    }
+}
+
+/// Convert EXIF GPS DMS (deg/min/sec as Rational array) + N/S/E/W ref to decimal degrees.
+/// Returns None if the data is malformed (denom=0, missing components, out-of-range).
+/// `is_latitude`: true → range [-90, 90]; false → range [-180, 180].
+fn dms_to_decimal(dms: &[exif::Rational], ref_byte: u8, is_latitude: bool) -> Option<f64> {
+    // EXIF 规范要求 GPS 坐标包含完整的度/分/秒三个 Rational 分量
+    if dms.len() < 3 {
+        return None;
+    }
+
+    let to_f64 = |r: &exif::Rational| -> Option<f64> {
+        if r.denom == 0 {
+            None
+        } else {
+            Some(r.num as f64 / r.denom as f64)
+        }
+    };
+
+    let deg = to_f64(&dms[0])?;
+    let min = to_f64(&dms[1])?;
+    let sec = to_f64(&dms[2])?;
+
+    if deg < 0.0 || min < 0.0 || sec < 0.0 || min >= 60.0 || sec >= 60.0 {
+        return None;
+    }
+
+    let mut decimal = deg + min / 60.0 + sec / 3600.0;
+
+    let limit = if is_latitude { 90.0 } else { 180.0 };
+    if decimal > limit {
+        return None;
+    }
+
+    // S/W 为负
+    let negative = matches!(ref_byte, b'S' | b's' | b'W' | b'w');
+    if negative {
+        decimal = -decimal;
+    }
+
+    Some(decimal)
+}
+
+/// Round to 6 decimal places (~0.11m precision) to remove floating-point noise.
+fn round6(v: f64) -> f64 {
+    (v * 1_000_000.0).round() / 1_000_000.0
 }
 
 /// 从文件读取 EXIF Orientation 值（tag 274），用于缩略图方向校正
@@ -511,5 +615,99 @@ mod tests {
         assert_eq!(ExifTag::from_raw("Exif", 37379), Some(ExifTag::ExposureBiasValue));
         assert_eq!(ExifTag::from_raw("Exif", 41986), Some(ExifTag::ExposureMode));
         assert_eq!(ExifTag::from_raw("Exif", 37383), Some(ExifTag::MeteringMode));
+    }
+
+    // ---- GPS DMS → decimal tests ----
+
+    fn r(num: u32, denom: u32) -> exif::Rational {
+        exif::Rational { num, denom }
+    }
+
+    #[test]
+    fn test_dms_to_decimal_beijing() {
+        // 39°54'12"N → 39.903333
+        let lat = dms_to_decimal(&[r(39, 1), r(54, 1), r(12, 1)], b'N', true).unwrap();
+        assert!((lat - 39.903333).abs() < 1e-5);
+        // 116°23'30"E → 116.391667
+        let lon = dms_to_decimal(&[r(116, 1), r(23, 1), r(30, 1)], b'E', false).unwrap();
+        assert!((lon - 116.391667).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_dms_to_decimal_south_west() {
+        // 33°51'54"S → -33.865
+        let lat = dms_to_decimal(&[r(33, 1), r(51, 1), r(54, 1)], b'S', true).unwrap();
+        assert!((lat - (-33.865)).abs() < 1e-5);
+        // 151°12'34"W → -151.209444
+        let lon = dms_to_decimal(&[r(151, 1), r(12, 1), r(34, 1)], b'W', false).unwrap();
+        assert!((lon - (-151.209444)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_dms_to_decimal_equator_prime_meridian() {
+        let lat = dms_to_decimal(&[r(0, 1), r(0, 1), r(0, 1)], b'N', true).unwrap();
+        assert_eq!(lat, 0.0);
+        let lon = dms_to_decimal(&[r(0, 1), r(0, 1), r(0, 1)], b'E', false).unwrap();
+        assert_eq!(lon, 0.0);
+    }
+
+    #[test]
+    fn test_dms_to_decimal_missing_seconds() {
+        // EXIF 规范要求完整的度/分/秒：只有度/分视为数据不完整 → None
+        assert!(dms_to_decimal(&[r(39, 1), r(54, 1)], b'N', true).is_none());
+    }
+
+    #[test]
+    fn test_dms_to_decimal_fractional_seconds() {
+        // 39°54'12.5" → 39.9034722...
+        let lat = dms_to_decimal(&[r(39, 1), r(54, 1), r(125, 10)], b'N', true).unwrap();
+        assert!((lat - 39.903472).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_dms_to_decimal_denom_zero() {
+        // 分母为 0 → 返回 None
+        assert!(dms_to_decimal(&[r(39, 0), r(54, 1), r(12, 1)], b'N', true).is_none());
+        assert!(dms_to_decimal(&[r(39, 1), r(54, 0), r(12, 1)], b'N', true).is_none());
+        assert!(dms_to_decimal(&[r(39, 1), r(54, 1), r(12, 0)], b'N', true).is_none());
+    }
+
+    #[test]
+    fn test_dms_to_decimal_out_of_range() {
+        // 纬度 > 90 → None
+        assert!(dms_to_decimal(&[r(91, 1), r(0, 1), r(0, 1)], b'N', true).is_none());
+        // 经度 > 180 → None
+        assert!(dms_to_decimal(&[r(181, 1), r(0, 1), r(0, 1)], b'E', false).is_none());
+        // 分/秒超 60 → None
+        assert!(dms_to_decimal(&[r(39, 1), r(60, 1), r(0, 1)], b'N', true).is_none());
+        assert!(dms_to_decimal(&[r(39, 1), r(0, 1), r(60, 1)], b'N', true).is_none());
+    }
+
+    #[test]
+    fn test_dms_to_decimal_too_short() {
+        // 只有度：拒绝
+        assert!(dms_to_decimal(&[r(39, 1)], b'N', true).is_none());
+        assert!(dms_to_decimal(&[], b'N', true).is_none());
+    }
+
+    #[test]
+    fn test_dms_to_decimal_boundary_values() {
+        // 北极 90°0'0"N
+        let lat = dms_to_decimal(&[r(90, 1), r(0, 1), r(0, 1)], b'N', true).unwrap();
+        assert_eq!(lat, 90.0);
+        // 南极 -90°
+        let lat = dms_to_decimal(&[r(90, 1), r(0, 1), r(0, 1)], b'S', true).unwrap();
+        assert_eq!(lat, -90.0);
+        // 反子午线 180°E
+        let lon = dms_to_decimal(&[r(180, 1), r(0, 1), r(0, 1)], b'E', false).unwrap();
+        assert_eq!(lon, 180.0);
+    }
+
+    #[test]
+    fn test_round6() {
+        assert_eq!(round6(39.903333333333335), 39.903333);
+        assert_eq!(round6(116.39166666666667), 116.391667);
+        assert_eq!(round6(0.0), 0.0);
+        assert_eq!(round6(-33.86500000000001), -33.865);
     }
 }

@@ -463,6 +463,8 @@ impl ScanService {
         media_file.focal_length = format_metadata.focal_length.clone();
         media_file.duration = format_metadata.duration;
         media_file.video_codec = format_metadata.video_codec.clone();
+        media_file.gps_latitude = format_metadata.gps_latitude;
+        media_file.gps_longitude = format_metadata.gps_longitude;
 
         media_file
     }

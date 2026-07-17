@@ -10,7 +10,10 @@ import {
   formatExposureTime,
   formatDate,
   debounce,
-  downloadFile
+  downloadFile,
+  formatDmsCoord,
+  formatCoordinate,
+  buildOsmUrl,
 } from '@/utils/format'
 
 describe('formatDuration', () => {
@@ -102,5 +105,54 @@ describe('downloadFile', () => {
 
     expect(createUrl).toHaveBeenCalled()
     expect(appendSpy).toHaveBeenCalled()
+  })
+})
+
+describe('formatDmsCoord', () => {
+  it('北半球东经（北京 39.903333, 116.391667）', () => {
+    expect(formatDmsCoord(39.903333, true)).toBe(`39°54'12"N`)
+    expect(formatDmsCoord(116.391667, false)).toBe(`116°23'30"E`)
+  })
+
+  it('南半球西半球使用 S/W', () => {
+    expect(formatDmsCoord(-33.865, true)).toBe(`33°51'54"S`)
+    expect(formatDmsCoord(-151.209444, false)).toBe(`151°12'34"W`)
+  })
+
+  it('赤道和本初子午线显示 00°00\'00"', () => {
+    expect(formatDmsCoord(0, true)).toBe(`0°00'00"N`)
+    expect(formatDmsCoord(0, false)).toBe(`0°00'00"E`)
+  })
+
+  it('秒数四舍五入到 60 时进位到分', () => {
+    // 59.6 秒 → 60 秒 → 进位为 1 分 0 秒
+    // 构造：39°54'59.6" → 期望 39°55'00"
+    const decimal = 39 + 54 / 60 + 59.6 / 3600
+    expect(formatDmsCoord(decimal, true)).toBe(`39°55'00"N`)
+  })
+
+  it('分和秒补零到两位', () => {
+    // 1°2'3" → 01°02'03"
+    const decimal = 1 + 2 / 60 + 3 / 3600
+    expect(formatDmsCoord(decimal, true)).toBe(`1°02'03"N`)
+  })
+})
+
+describe('formatCoordinate', () => {
+  it('组合 DMS + 十进制双格式', () => {
+    const result = formatCoordinate(39.903333, 116.391667)
+    expect(result).toContain(`39°54'12"N`)
+    expect(result).toContain(`116°23'30"E`)
+    expect(result).toContain('(39.9033, 116.3917)')
+  })
+})
+
+describe('buildOsmUrl', () => {
+  it('构造包含 mlat/mlon 与缩放级别的 OpenStreetMap 链接', () => {
+    const url = buildOsmUrl(39.903333, 116.391667)
+    expect(url).toContain('openstreetmap.org')
+    expect(url).toContain('mlat=39.903333')
+    expect(url).toContain('mlon=116.391667')
+    expect(url).toContain('#map=14/')
   })
 })

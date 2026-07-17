@@ -104,3 +104,52 @@ export const debounce = <T extends (...args: any[]) => any>(
     timeout = setTimeout(() => func(...args), wait)
   }
 }
+
+/**
+ * 把十进制度数格式化为 DMS（度分秒）字符串，并附加半球标识。
+ * @param decimal 十进制度数（lat 范围 [-90,90]，lon 范围 [-180,180]）
+ * @param isLatitude true 表示纬度（N/S），false 表示经度（E/W）
+ * @returns 形如 `39°54'12"N` 或 `116°23'30"E`
+ */
+export const formatDmsCoord = (decimal: number, isLatitude: boolean): string => {
+  const hemisphere = isLatitude
+    ? (decimal >= 0 ? 'N' : 'S')
+    : (decimal >= 0 ? 'E' : 'W')
+  const abs = Math.abs(decimal)
+  const deg = Math.floor(abs)
+  const minFloat = (abs - deg) * 60
+  const min = Math.floor(minFloat)
+  const sec = Math.round((minFloat - min) * 60)
+  // 当秒数四舍五入到 60 时进位到分；分到 60 时进位到度
+  let adjSec = sec
+  let adjMin = min
+  let adjDeg = deg
+  if (adjSec >= 60) {
+    adjSec = 0
+    adjMin += 1
+  }
+  if (adjMin >= 60) {
+    adjMin = 0
+    adjDeg += 1
+  }
+  return `${adjDeg}°${adjMin.toString().padStart(2, '0')}'${adjSec.toString().padStart(2, '0')}"${hemisphere}`
+}
+
+/**
+ * 将十进制经纬度格式化为人类可读字符串，同时给出 DMS 与十进制双格式。
+ * @returns 形如 `39°54'12"N 116°23'30"E (39.9033, 116.3917)`
+ */
+export const formatCoordinate = (lat: number, lon: number): string => {
+  const dms = `${formatDmsCoord(lat, true)} ${formatDmsCoord(lon, false)}`
+  const decLat = lat.toFixed(4)
+  const decLon = lon.toFixed(4)
+  return `${dms} (${decLat}, ${decLon})`
+}
+
+/**
+ * 构造 OpenStreetMap 跳转链接。
+ */
+export const buildOsmUrl = (lat: number, lon: number): string => {
+  const zoom = 14
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${zoom}/${lat}/${lon}`
+}

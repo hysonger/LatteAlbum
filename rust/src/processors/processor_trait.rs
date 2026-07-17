@@ -34,6 +34,8 @@ pub struct MediaMetadata {
     pub focal_length: Option<String>,
     pub duration: Option<f64>,
     pub video_codec: Option<String>,
+    pub gps_latitude: Option<f64>,
+    pub gps_longitude: Option<f64>,
 }
 
 /// Processing error
