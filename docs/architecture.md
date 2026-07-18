@@ -62,7 +62,7 @@ frontend/src/
 ├── views/HomeView.vue         # Main page with Gallery + PhotoViewer
 ├── components/                 # Gallery, PhotoViewer, MediaCard, DateNavigator, etc.
 ├── composables/useScreenSize.ts # Screen size detection (mobile/tablet/desktop)
-├── composables/useImageZoom.ts  # Image zoom/pan (wheel, Ctrl±, drag); images only
+├── composables/useImageZoom.ts  # Image zoom/pan (wheel w/ trackpad-adaptive speed, Ctrl±, drag, touch pinch); images only
 ├── stores/gallery.ts          # Pinia store for gallery state
 └── services/                  # API client and WebSocket handler
 ```

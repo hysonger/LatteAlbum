@@ -39,8 +39,10 @@ interface UseImageZoomOptions {
  * 图片大图查看器的缩放与拖拽 composable。
  *
  * 基于 CSS transform（translate + scale, transform-origin: 0 0）实现，
- * GPU 合成、零依赖。滚轮以光标为锚点缩放，键盘以容器中心为锚点缩放，
- * 双击在 1x/2x 间切换，鼠标点按拖拽平移并按容器边界 clamp。
+ * GPU 合成、零依赖。滚轮以光标为锚点缩放，并按事件特征自适应灵敏度
+ * （触控板捏合/平滑滚动用高系数，鼠标滚轮大步长保持低系数，行模式归一化）；
+ * 触屏双指捏合以双指中点为锚点缩放、单指平移；键盘以容器中心为锚点缩放，
+ * 双击在 1x/2x 间切换，点按拖拽平移并按容器边界 clamp。
  *
  * @param containerRef 容器元素 ref（坐标参照系，须与 <img> 等大）
  */
@@ -78,6 +80,8 @@ export function useImageZoom(
     cursor: cursor.value,
     userSelect: 'none',
     WebkitUserDrag: 'none',
+    // 阻止浏览器默认触屏手势（页面滚动/双指缩放），交由 pointer 事件自行处理
+    touchAction: 'none',
   }))
 
   /** 读取容器当前布局尺寸（不受 transform 影响） */
@@ -111,8 +115,14 @@ export function useImageZoom(
     const cx = e.clientX - rect.left
     const cy = e.clientY - rect.top
     const s0 = scale.value
-    // 既能处理鼠标离散滚轮（deltaY≈±100 → 倍率≈1.16），也能平滑处理触控板惯性滚动
-    const factor = Math.pow(1.0015, -e.deltaY)
+    // 行模式（如 Firefox 鼠标滚轮）按约 33px/行归一化为像素，
+    // 使 3 行一格 ≈ 100px，与 Chrome 像素模式一格一致
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+    // 触控板捏合（ctrlKey）或平滑滚动（小步长）用更高灵敏度；
+    // 鼠标滚轮大步长保持原系数（deltaY≈100 → 倍率≈1.16）。
+    // 单事件倍率 clamp 到 [0.5, 2]，防止快速捏合时跳变。
+    const coeff = e.ctrlKey || Math.abs(dy) < 50 ? 0.01 : 0.0015
+    const factor = clamp(Math.exp(-dy * coeff), 0.5, 2)
     const s1 = clamp(s0 * factor, minScale, maxScale)
     zoomAt(cx, cy, s0, s1)
   }
@@ -140,9 +150,32 @@ export function useImageZoom(
     zoomAt(cx, cy, s0, target)
   }
 
+  // 触控/指针多触点状态（双指捏合、单指平移）
+  const activePointers = new Map<number, { x: number; y: number }>()
+  let pinching = false
+  let pinchStartDist = 0
+  let pinchStartScale = 1
+
+  /** 当前两个触点的间距 */
+  const pointerDist = () => {
+    const [a, b] = [...activePointers.values()]
+    return Math.hypot(a.x - b.x, a.y - b.y)
+  }
+
   const onPointerDown = (e: PointerEvent) => {
     if (!enabled.value) return
-    if (e.pointerType !== 'mouse') return
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const target = e.target as Element | null
+    target?.setPointerCapture?.(e.pointerId)
+    if (activePointers.size >= 2) {
+      // 进入双指捏合：取消单指拖拽
+      pinching = true
+      pinchStartDist = pointerDist()
+      pinchStartScale = scale.value
+      dragging = false
+      isDragging.value = false
+      return
+    }
     if (scale.value <= 1) return // 1x 不可拖
     dragging = true
     isDragging.value = true
@@ -150,11 +183,26 @@ export function useImageZoom(
     dragStartY = e.clientY
     dragStartOffsetX = offsetX.value
     dragStartOffsetY = offsetY.value
-    const target = e.target as Element | null
-    target?.setPointerCapture?.(e.pointerId)
   }
 
   const onPointerMove = (e: PointerEvent) => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    }
+    if (pinching && activePointers.size >= 2) {
+      // 双指捏合：按间距比例缩放，以双指中点为锚点
+      const size = readSize()
+      if (!size || pinchStartDist <= 0) return
+      const s1 = clamp(pinchStartScale * (pointerDist() / pinchStartDist), minScale, maxScale)
+      const [a, b] = [...activePointers.values()]
+      zoomAt(
+        (a.x + b.x) / 2 - size.rect.left,
+        (a.y + b.y) / 2 - size.rect.top,
+        scale.value,
+        s1,
+      )
+      return
+    }
     if (!dragging) return
     const size = readSize()
     if (!size) return
@@ -165,11 +213,28 @@ export function useImageZoom(
   }
 
   const endDrag = (e: PointerEvent) => {
-    if (!dragging) return
-    dragging = false
-    isDragging.value = false
+    activePointers.delete(e.pointerId)
     const target = e.target as Element | null
     target?.releasePointerCapture?.(e.pointerId)
+    if (pinching) {
+      if (activePointers.size < 2) {
+        pinching = false
+        // 捏合结束还剩一指：以该指当前位置为基准继续平移
+        const remaining = [...activePointers.values()][0]
+        if (remaining && scale.value > 1) {
+          dragging = true
+          isDragging.value = true
+          dragStartX = remaining.x
+          dragStartY = remaining.y
+          dragStartOffsetX = offsetX.value
+          dragStartOffsetY = offsetY.value
+        }
+      }
+      return
+    }
+    if (!dragging || activePointers.size > 0) return
+    dragging = false
+    isDragging.value = false
   }
 
   /** 容器尺寸变化后重新 clamp，避免缩放态下露出黑边 */
@@ -187,6 +252,8 @@ export function useImageZoom(
     offsetY.value = 0
     dragging = false
     isDragging.value = false
+    pinching = false
+    activePointers.clear()
   }
 
   // wheel 需以 passive:false 手动挂载，确保 preventDefault 生效（阻止页面滚动）
