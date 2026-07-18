@@ -155,26 +155,37 @@
             </div>
           </div>
 
-          <!-- 位置信息（敏感信息：按需加载，仅用户主动展开时请求） -->
-          <div class="meta-group" v-if="currentFile && !gpsCache.has(currentFile.id) && gpsLoading">
-            <div class="meta-item">
-              <span class="meta-label">位置信息</span>
-              <span class="meta-value meta-value--loading">加载位置信息...</span>
-            </div>
-          </div>
-          <div class="meta-group" v-else-if="currentGps?.hasGps && currentGps.latitude !== undefined && currentGps.longitude !== undefined">
-            <div class="meta-item meta-item--wide">
-              <span class="meta-label">位置信息</span>
-              <span class="meta-value">{{ formatCoordinate(currentGps.latitude, currentGps.longitude) }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">&nbsp;</span>
-              <a
-                class="meta-value meta-value--link"
-                :href="buildOsmUrl(currentGps.latitude, currentGps.longitude)"
-                target="_blank"
-                rel="noopener noreferrer"
-              >在地图中查看 ↗</a>
+          <!-- 位置信息（敏感信息：单独折叠，仅用户主动展开时才请求） -->
+          <div class="meta-group meta-group--gps">
+            <button
+              class="gps-toggle"
+              @click="toggleGpsInfo"
+              :aria-expanded="showGpsInfo"
+            >
+              <svg
+                class="gps-toggle-icon"
+                :class="{ 'gps-toggle-icon--open': showGpsInfo }"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+              <span>位置信息</span>
+            </button>
+            <div class="gps-content" v-show="showGpsInfo">
+              <span class="meta-value meta-value--loading" v-if="!currentGpsLoaded">加载位置信息...</span>
+              <template v-else-if="currentGps?.hasGps && currentGps.latitude !== undefined && currentGps.longitude !== undefined">
+                <span class="meta-value">{{ formatCoordinate(currentGps.latitude, currentGps.longitude) }}</span>
+                <a
+                  class="meta-value meta-value--link"
+                  :href="buildOsmUrl(currentGps.latitude, currentGps.longitude)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >在地图中查看 ↗</a>
+              </template>
+              <span class="meta-value meta-value--loading" v-else>无位置信息</span>
             </div>
           </div>
         </div>
@@ -221,9 +232,14 @@ const isImageLoaded = ref(false)
 // GPS 会话级缓存：key = fileId，value = GpsInfo 或 null（表示请求过但没有 GPS）。
 // 生命周期与 PhotoViewer 实例相同，关闭 viewer 自动释放。
 const gpsCache = reactive(new Map<string, GpsInfo | null>())
-const gpsLoading = ref(false)
+// 位置信息单独折叠：展开详情面板时不请求，仅用户主动展开此区域时才加载
+const showGpsInfo = ref(false)
 const currentGps = computed<GpsInfo | null | undefined>(() =>
   currentFile.value ? gpsCache.get(currentFile.value.id) : undefined
+)
+// 当前文件的 GPS 是否已请求过（无论结果有无坐标）
+const currentGpsLoaded = computed(() =>
+  currentFile.value ? gpsCache.has(currentFile.value.id) : false
 )
 
 // 用于触发窗口尺寸变化时的重新计算
@@ -311,8 +327,12 @@ const close = () => {
 }
 
 const toggleInfo = () => {
-  const willShow = !showDetailInfo.value
-  showDetailInfo.value = willShow
+  showDetailInfo.value = !showDetailInfo.value
+}
+
+const toggleGpsInfo = () => {
+  const willShow = !showGpsInfo.value
+  showGpsInfo.value = willShow
   if (willShow && currentFile.value && !gpsCache.has(currentFile.value.id)) {
     loadGps(currentFile.value.id)
   }
@@ -320,15 +340,12 @@ const toggleInfo = () => {
 
 const loadGps = async (fileId: string) => {
   if (gpsCache.has(fileId)) return
-  gpsLoading.value = true
   try {
     const { data } = await fileApi.getFileGps(fileId)
     gpsCache.set(fileId, data)
   } catch (e) {
     console.error('加载 GPS 信息失败:', e)
     gpsCache.set(fileId, null)
-  } finally {
-    gpsLoading.value = false
   }
 }
 
@@ -468,6 +485,11 @@ watch(currentFile, () => {
   currentImageUrl.value = undefined
   currentVideoUrl.value = undefined
   loadMedia()
+
+  // GPS 折叠区保持展开时，为切换后的文件按需加载位置信息
+  if (showGpsInfo.value && currentFile.value && !gpsCache.has(currentFile.value.id)) {
+    loadGps(currentFile.value.id)
+  }
 
   if (currentFile.value) {
     emit('change', currentFile.value)
@@ -883,6 +905,36 @@ defineExpose({
 .meta-value--link:hover {
   color: #8fc3ff;
   text-decoration: underline;
+}
+
+.meta-group--gps .gps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.meta-group--gps .gps-toggle:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.meta-group--gps .gps-toggle-icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s;
+}
+
+.meta-group--gps .gps-toggle-icon--open {
+  transform: rotate(180deg);
+}
+
+.meta-group--gps .gps-content {
+  margin-top: 6px;
 }
 
 .close-btn {

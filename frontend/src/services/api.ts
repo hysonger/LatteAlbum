@@ -78,7 +78,7 @@ export const fileApi = {
     return apiClient.get<DateInfo[]>('/files/dates', { params })
   },
 
-  // 按需获取照片的 GPS 经纬度（敏感信息端点，仅在用户展开详情面板时调用）
+  // 按需获取照片的 GPS 经纬度（敏感信息端点，仅在用户主动展开位置信息折叠区时调用）
   getFileGps: (id: string) => {
     return apiClient.get<GpsInfo>(`/files/${id}/gps`)
   },

@@ -41,7 +41,7 @@ LatteAlbum 前端（Vue 3 + TypeScript + Vite 5）使用 [Vitest](https://vitest
 - **jsdom 无真实布局**：`offsetWidth`/`offsetHeight`/`getBoundingClientRect` 默认返回 0。依赖布局尺寸的用例需在测试内用 `Object.defineProperty` 按需 stub，**不要**放进全局 setup，避免污染其它用例。
 - **mock `@/services/api`**：`vi.mock('@/services/api', () => ({ fileApi: { getFiles: vi.fn() } }))`，用 `vi.mocked(fileApi.getFiles)` 获取带类型的 mock。注意工厂内只能用 `vi.*`，不能引用外部变量。
 - **模块级单例状态**：如 `useScreenSize` 的 `screenWidth` 是模块级 ref，跨用例保留；改属性后需 dispatch 事件同步。
-- **依赖 store/router/Element Plus 全局的组件**（如 Gallery、PhotoViewer）挂载时需通过 `global.plugins` 注入，留到后续按需覆盖。
+- **依赖 store/router/Element Plus 全局的组件**（如 Gallery）挂载时需通过 `global.plugins` 注入，留到后续按需覆盖；PhotoViewer 无 store/router 依赖，`vi.mock('@/services/api')` 后即可直接挂载（见 [src/components/PhotoViewer.spec.ts](../frontend/src/components/PhotoViewer.spec.ts)）。
 
 ## 验证
 
