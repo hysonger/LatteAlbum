@@ -1,7 +1,7 @@
 ## IMPORTANT: 输出语言 / Output Language
 
-用户倾向于阅读中文。始终以 **中文** 向用户侧进行输出，以及编写注释和文档。
-The user tend to read Chinese text. ALWAYS output contents for human read in Chinese.
+用户倾向于阅读中文。始终以 **中文** 向用户侧输出内容（含思维链）。
+The user tend to read Chinese text. ALWAYS output contents for human read in Chinese (including thought chain).
 
 ## Project Overview
 
@@ -55,7 +55,7 @@ cd frontend && npm run build
 
 ### Testing (Frontend)
 
-前端基于 Vitest（选型与约定见 [docs/frontend-testing.md](docs/frontend-testing.md)）：
+The frontend testing framework is based on Vitest（选型与约定见 [docs/frontend-testing.md](docs/frontend-testing.md)）：
 
 ```bash
 cd frontend
@@ -66,6 +66,8 @@ npm run test:coverage # 生成覆盖率报告（coverage/index.html）
 ```
 
 测试文件就近平铺在 `src/` 下，命名为 `*.spec.ts`；DOM 环境为 jsdom。后端测试仍用 `cd rust && ./cargo-with-vendor.sh test`。
+
+
 
 ## Key Environment Variables
 
@@ -136,11 +138,12 @@ FFmpeg is still required separately if using `video-processing`.
 ### Git Commits
 
 - Only commit file changes in current conversation. DO NOT bring irrelevent changes in.
-- When adding the co-authored line to the commit message, if the MODEL name is in **Claude series**, DO NOT straightly bring it into the message. replace it with the tool name `Claude Code`.
+- When adding the co-authored line to the commit message, if the MODEL name is in **Claude series**, DO NOT straightly bring it into the message, because the actual LLM API might be replaced. Replace the model name with just the tool name `Claude Code`.
 For example, write like this:
 `Co-Authored-By: Claude Code <noreply@anthropic.com>`
 Instead of:
 `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`
+    - For other coding tools and models, just write the tool and model names in the original way.
 - Write brief, clear and concise commit messages.
 
 ## Additional Documentation
